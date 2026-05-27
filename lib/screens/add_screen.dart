@@ -5,6 +5,7 @@ import '../providers/master_password_provider.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../widgets/master_password_dialog.dart';
+import '../widgets/password_generator_sheet.dart';
 
 class AddScreen extends StatefulWidget {
   final Credential? credential; // non-null = edit mode
@@ -145,6 +146,17 @@ class _AddScreenState extends State<AddScreen> {
                       ? 'New password (leave blank to keep current)'
                       : 'Password',
                   border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.auto_fix_high),
+                    tooltip: 'Generate password',
+                    onPressed: () async {
+                      final generated =
+                          await showPasswordGeneratorSheet(context);
+                      if (generated != null) {
+                        _passwordController.text = generated;
+                      }
+                    },
+                  ),
                 ),
                 obscureText: true,
               ),

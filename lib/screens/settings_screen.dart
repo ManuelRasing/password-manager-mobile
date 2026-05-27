@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../services/storage_service.dart';
+import 'package:provider/provider.dart';
+import '../providers/master_password_provider.dart';
 import '../services/api_service.dart';
+import '../services/biometric_service.dart';
+import '../services/storage_service.dart';
+import '../widgets/master_password_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -19,6 +23,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _testing = false;
   String? _testResult;
 
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
+  bool _togglingBiometric = false;
+
   @override
   void initState() {
     super.initState();
@@ -28,10 +36,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final url = await StorageService.getServerUrl();
     final key = await StorageService.getApiKey();
+    final bioAvailable = await BiometricService.isAvailable();
+    final bioEnabled = await StorageService.isBiometricEnabled();
     setState(() {
       _serverUrlController.text =
           url ?? 'https://password-manager-server-9shr.onrender.com';
       _apiKeyController.text = key ?? '';
+      _biometricAvailable = bioAvailable;
+      _biometricEnabled = bioEnabled;
     });
   }
 
@@ -42,9 +54,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await StorageService.setApiKey(_apiKeyController.text.trim());
     setState(() => _saving = false);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Settings saved')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Settings saved')));
     context.go('/');
   }
 
@@ -53,7 +64,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _testing = true;
       _testResult = null;
     });
-    // Temporarily write values so ApiService picks them up during the test
     await StorageService.setServerUrl(_serverUrlController.text.trim());
     await StorageService.setApiKey(_apiKeyController.text.trim());
     final ok = await ApiService().checkHealth();
@@ -61,6 +71,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _testing = false;
       _testResult = ok ? 'Connected successfully' : 'Could not reach server';
     });
+  }
+
+  Future<void> _toggleBiometric(bool enable) async {
+    setState(() => _togglingBiometric = true);
+    try {
+      if (enable) {
+        // Require master password to enable biometric unlock
+        String? masterPassword =
+            context.read<MasterPasswordProvider>().password;
+        if (masterPassword == null) {
+          masterPassword = await showMasterPasswordDialog(context);
+          if (masterPassword == null || !mounted) return; // user cancelled
+          context.read<MasterPasswordProvider>().set(masterPassword);
+        }
+
+        // Confirm with biometric before storing
+        final ok = await BiometricService.authenticate(
+            'Confirm to enable biometric unlock');
+        if (!ok || !mounted) return;
+
+        await StorageService.setBiometricMasterPassword(masterPassword);
+        await StorageService.setBiometricEnabled(true);
+        setState(() => _biometricEnabled = true);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Biometric unlock enabled')));
+        }
+      } else {
+        await StorageService.clearBiometricMasterPassword();
+        await StorageService.setBiometricEnabled(false);
+        setState(() => _biometricEnabled = false);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Biometric unlock disabled')));
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _togglingBiometric = false);
+    }
   }
 
   @override
@@ -84,10 +135,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Server Configuration',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
+              // ── Server configuration ──────────────────────────────────
+              const Text('Server Configuration',
+                  style:
+                      TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _serverUrlController,
@@ -118,8 +169,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? const SizedBox(
                         height: 16,
                         width: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
+                        child: CircularProgressIndicator(strokeWidth: 2))
                     : const Text('Test Connection'),
               ),
               if (_testResult != null) ...[
@@ -142,10 +192,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         height: 16,
                         width: 16,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
+                            strokeWidth: 2, color: Colors.white))
                     : const Text('Save'),
               ),
+
+              // ── Biometric unlock ──────────────────────────────────────
+              if (_biometricAvailable) ...[
+                const SizedBox(height: 32),
+                const Divider(),
+                const SizedBox(height: 16),
+                const Text('Security',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Biometric Unlock'),
+                  subtitle: const Text(
+                      'Use Face ID or fingerprint to restore your session after backgrounding the app'),
+                  value: _biometricEnabled,
+                  onChanged: _togglingBiometric
+                      ? null
+                      : (v) => _toggleBiometric(v),
+                ),
+              ],
             ],
           ),
         ),

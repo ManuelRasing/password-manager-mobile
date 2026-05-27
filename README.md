@@ -118,7 +118,20 @@ flutter run
 - `HomeScreen` — tap credential → decrypt in background → reveal in modal bottom sheet with copy button
 - Wrong master password caught gracefully; clears cached password and shows error
 
-### Phase 5 — UI Polish _(upcoming)_
-- Password generator
-- Search / filter credentials
-- Biometric unlock (Face ID / fingerprint) to restore cached master password
+### Phase 5 — Polish & Biometrics
+- **Password generator** bottom sheet on AddScreen — length slider, charset toggles (A–Z, a–z, 0–9, !@#), regenerate, copy
+- **Search bar** on HomeScreen — live client-side filter by site name or username hint
+- **Biometric unlock** (`local_auth`) — Face ID / fingerprint to restore master password session after app backgrounds
+  - Opt-in toggle in Settings; requires entering master password + biometric confirmation to enable
+  - Auto-triggers on app resume if enabled
+  - Falls back to manual master password entry if biometric fails
+- `BiometricService` wrapper around `local_auth`
+- `StorageService` extended with biometric enable flag + encrypted master password storage
+- Android: `FlutterFragmentActivity` + biometric permissions in `AndroidManifest.xml`
+- iOS: `NSFaceIDUsageDescription` in `Info.plist`
+
+### Phase 6 — Master Password Setup Flow _(upcoming)_
+- Dedicated setup screen on first launch (enter + confirm master password)
+- Verifier ciphertext stored in secure storage to detect wrong master password before decrypting
+- Change master password flow (re-encrypts all credentials)
+- Biometric as second factor for master password change verification

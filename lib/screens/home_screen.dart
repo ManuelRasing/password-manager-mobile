@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import '../models/credential.dart';
 import '../providers/master_password_provider.dart';
 import '../services/api_service.dart';
+import '../services/biometric_service.dart';
 import '../services/crypto_service.dart';
+import '../services/storage_service.dart';
 import '../widgets/master_password_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -15,15 +17,74 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<Credential> _credentials = [];
   bool _loading = true;
   String? _error;
 
+  // Search
+  bool _searchActive = false;
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  // Biometric
+  bool _biometricEnabled = false;
+
+  List<Credential> get _filtered => _searchQuery.isEmpty
+      ? _credentials
+      : _credentials
+          .where((c) =>
+              c.siteName
+                  .toLowerCase()
+                  .contains(_searchQuery.toLowerCase()) ||
+              c.usernameHint
+                  .toLowerCase()
+                  .contains(_searchQuery.toLowerCase()))
+          .toList();
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    _checkBiometric();
+    _searchController.addListener(() {
+      setState(() => _searchQuery = _searchController.text);
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // When app resumes from background, auto-trigger biometric if enabled
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final mp = context.read<MasterPasswordProvider>();
+      if (!mp.isUnlocked && _biometricEnabled) {
+        _tryBiometricUnlock();
+      }
+    }
+  }
+
+  Future<void> _checkBiometric() async {
+    final enabled = await StorageService.isBiometricEnabled();
+    setState(() => _biometricEnabled = enabled);
+  }
+
+  Future<void> _tryBiometricUnlock() async {
+    final authenticated = await BiometricService.authenticate(
+        'Unlock Password Manager');
+    if (!authenticated || !mounted) return;
+
+    final stored = await StorageService.getBiometricMasterPassword();
+    if (stored != null && mounted) {
+      context.read<MasterPasswordProvider>().set(stored);
+    }
   }
 
   Future<void> _load() async {
@@ -69,24 +130,40 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Tap a credential → show detail bottom sheet with decrypted password
-  Future<void> _showDetail(Credential credential) async {
+  Future<String?> _ensureMasterPassword() async {
     final mp = context.read<MasterPasswordProvider>();
-    String? masterPassword = mp.password;
+    if (mp.isUnlocked) return mp.password;
 
-    if (masterPassword == null) {
-      masterPassword = await showMasterPasswordDialog(context);
-      if (masterPassword == null || !mounted) return;
-      mp.set(masterPassword);
+    // Try biometric first if enabled
+    if (_biometricEnabled) {
+      final ok =
+          await BiometricService.authenticate('Unlock Password Manager');
+      if (ok && mounted) {
+        final stored = await StorageService.getBiometricMasterPassword();
+        if (stored != null) {
+          mp.set(stored);
+          return stored;
+        }
+      }
     }
 
-    if (!mounted) return;
+    // Fall back to manual entry
+    if (!mounted) return null;
+    final entered = await showMasterPasswordDialog(context);
+    if (entered != null) mp.set(entered);
+    return entered;
+  }
+
+  Future<void> _showDetail(Credential credential) async {
+    final masterPassword = await _ensureMasterPassword();
+    if (masterPassword == null || !mounted) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => _CredentialDetailSheet(
         credential: credential,
-        masterPassword: masterPassword!,
+        masterPassword: masterPassword,
       ),
     );
   }
@@ -116,44 +193,68 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Backup failed: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Backup failed: $e')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Password Manager'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.backup),
-            tooltip: 'Backup to Google Drive',
-            onPressed: _backup,
+    return Consumer<MasterPasswordProvider>(
+      builder: (context, mp, child) {
+        return Scaffold(
+          appBar: AppBar(
+            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+            title: _searchActive
+                ? TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search credentials...',
+                      border: InputBorder.none,
+                    ),
+                  )
+                : const Text('Password Manager'),
+            actions: [
+              IconButton(
+                icon: Icon(_searchActive ? Icons.close : Icons.search),
+                tooltip: _searchActive ? 'Close search' : 'Search',
+                onPressed: () {
+                  setState(() {
+                    _searchActive = !_searchActive;
+                    if (!_searchActive) {
+                      _searchController.clear();
+                    }
+                  });
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.backup),
+                tooltip: 'Backup to Google Drive',
+                onPressed: _backup,
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings),
+                tooltip: 'Settings',
+                onPressed: () => context.push('/settings'),
+              ),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: 'Settings',
-            onPressed: () => context.push('/settings'),
+          body: _buildBody(mp),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () async {
+              await context.push('/add');
+              _load();
+            },
+            tooltip: 'Add credential',
+            child: const Icon(Icons.add),
           ),
-        ],
-      ),
-      body: _buildBody(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          await context.push('/add');
-          _load();
-        },
-        tooltip: 'Add credential',
-        child: const Icon(Icons.add),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(MasterPasswordProvider mp) {
     if (_loading) return const Center(child: CircularProgressIndicator());
 
     if (_error != null) {
@@ -174,6 +275,8 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    final filtered = _filtered;
+
     if (_credentials.isEmpty) {
       return const Center(
         child: Column(
@@ -188,20 +291,26 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    if (filtered.isEmpty) {
+      return const Center(
+        child: Text('No results match your search.'),
+      );
+    }
+
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
-        itemCount: _credentials.length,
+        itemCount: filtered.length,
         separatorBuilder: (context, index) => const SizedBox(height: 8),
         itemBuilder: (context, i) => _CredentialCard(
-          credential: _credentials[i],
-          onTap: () => _showDetail(_credentials[i]),
+          credential: filtered[i],
+          onTap: () => _showDetail(filtered[i]),
           onEdit: () async {
-            await context.push('/add', extra: _credentials[i]);
+            await context.push('/add', extra: filtered[i]);
             _load();
           },
-          onDelete: () => _delete(_credentials[i]),
+          onDelete: () => _delete(filtered[i]),
         ),
       ),
     );
@@ -209,7 +318,7 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// Credential card widget
+// Credential card
 // ---------------------------------------------------------------------------
 
 class _CredentialCard extends StatelessWidget {
@@ -258,17 +367,15 @@ class _CredentialCard extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Credential detail bottom sheet — decrypts and reveals the password
+// Credential detail bottom sheet
 // ---------------------------------------------------------------------------
 
 class _CredentialDetailSheet extends StatefulWidget {
   final Credential credential;
   final String masterPassword;
 
-  const _CredentialDetailSheet({
-    required this.credential,
-    required this.masterPassword,
-  });
+  const _CredentialDetailSheet(
+      {required this.credential, required this.masterPassword});
 
   @override
   State<_CredentialDetailSheet> createState() =>
@@ -289,19 +396,16 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
 
   Future<void> _decrypt() async {
     try {
-      final plaintext = await CryptoService.decrypt(
+      final p = await CryptoService.decrypt(
         widget.credential.encryptedPayload,
         widget.credential.iv,
         widget.masterPassword,
       );
-      setState(() => _plaintext = plaintext);
+      setState(() => _plaintext = p);
     } catch (e) {
-      setState(() =>
-          _error = e.toString().replaceFirst('Exception: ', ''));
-      // Clear wrong master password from memory
-      if (mounted) {
-        context.read<MasterPasswordProvider>().clear();
-      }
+      setState(
+          () => _error = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) context.read<MasterPasswordProvider>().clear();
     } finally {
       setState(() => _decrypting = false);
     }
@@ -322,15 +426,13 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Handle bar
           Center(
             child: Container(
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2)),
             ),
           ),
           const SizedBox(height: 20),
@@ -348,8 +450,7 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
           if (_decrypting)
             const Center(child: CircularProgressIndicator())
           else if (_error != null)
-            Text(_error!,
-                style: const TextStyle(color: Colors.red))
+            Text(_error!, style: const TextStyle(color: Colors.red))
           else
             Row(
               children: [
@@ -358,15 +459,14 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
                     _obscure
                         ? '•' * (_plaintext?.length ?? 8)
                         : _plaintext!,
-                    style: const TextStyle(fontSize: 16,
-                        fontFamily: 'monospace'),
+                    style: const TextStyle(
+                        fontSize: 16, fontFamily: 'monospace'),
                   ),
                 ),
                 IconButton(
                   icon: Icon(
                       _obscure ? Icons.visibility : Icons.visibility_off),
                   onPressed: () => setState(() => _obscure = !_obscure),
-                  tooltip: _obscure ? 'Show' : 'Hide',
                 ),
                 IconButton(
                   icon: const Icon(Icons.copy),
@@ -385,8 +485,7 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
     );
   }
 
-  String _formatDate(DateTime dt) {
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
-        '${dt.day.toString().padLeft(2, '0')}';
-  }
+  String _formatDate(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
+      '${dt.day.toString().padLeft(2, '0')}';
 }
