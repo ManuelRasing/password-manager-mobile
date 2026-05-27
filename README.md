@@ -108,8 +108,17 @@ flutter run
 - `main.dart` — GoRouter with auto-redirect to Settings on first launch
 - `CryptoService` stub ready for Phase 4
 
-### Phase 4 — Encryption _(upcoming)_
-- AES-256-GCM encrypt/decrypt in `CryptoService`
-- PBKDF2 key derivation from master password
-- Wire `AddScreen` save button to encrypt then call `ApiService`
-- Master password prompt on app open, cleared on background
+### Phase 4 — Encryption
+- `CryptoService` — AES-256-GCM encrypt/decrypt via `encrypt` + `pointycastle`
+- PBKDF2 key derivation: 310,000 iterations, SHA-256, 256-bit key, runs in background isolate via `compute()`
+- Per-device salt generated on first encrypt, stored in `flutter_secure_storage`
+- `MasterPasswordProvider` — holds master password in memory, auto-clears on app background (`AppLifecycleState.paused`)
+- `MasterPasswordDialog` — reusable prompt widget
+- `AddScreen` — save button encrypts password before calling `ApiService`; edit mode preserves existing ciphertext if password field is empty
+- `HomeScreen` — tap credential → decrypt in background → reveal in modal bottom sheet with copy button
+- Wrong master password caught gracefully; clears cached password and shows error
+
+### Phase 5 — UI Polish _(upcoming)_
+- Password generator
+- Search / filter credentials
+- Biometric unlock (Face ID / fingerprint) to restore cached master password

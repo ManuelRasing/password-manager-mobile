@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../models/credential.dart';
+import '../providers/master_password_provider.dart';
 import '../services/api_service.dart';
+import '../services/crypto_service.dart';
+import '../widgets/master_password_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -52,7 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
     try {
       await ApiService().deleteCredential(credential.id);
       _load();
@@ -60,6 +65,59 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Delete failed: $e')),
+      );
+    }
+  }
+
+  // Tap a credential → show detail bottom sheet with decrypted password
+  Future<void> _showDetail(Credential credential) async {
+    final mp = context.read<MasterPasswordProvider>();
+    String? masterPassword = mp.password;
+
+    if (masterPassword == null) {
+      masterPassword = await showMasterPasswordDialog(context);
+      if (masterPassword == null || !mounted) return;
+      mp.set(masterPassword);
+    }
+
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _CredentialDetailSheet(
+        credential: credential,
+        masterPassword: masterPassword!,
+      ),
+    );
+  }
+
+  Future<void> _backup() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Backup to Google Drive'),
+        content: const Text('Export all credentials to your Drive folder?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Backup')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final result = await ApiService().backupToGoogleDrive();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Backed up ${result['count']} credentials')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Backup failed: $e')),
       );
     }
   }
@@ -96,9 +154,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_loading) return const Center(child: CircularProgressIndicator());
+
     if (_error != null) {
       return Center(
         child: Padding(
@@ -116,6 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
+
     if (_credentials.isEmpty) {
       return const Center(
         child: Column(
@@ -129,14 +187,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
+
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: _credentials.length,
         separatorBuilder: (context, index) => const SizedBox(height: 8),
-        itemBuilder: (_, i) => _CredentialCard(
+        itemBuilder: (context, i) => _CredentialCard(
           credential: _credentials[i],
+          onTap: () => _showDetail(_credentials[i]),
           onEdit: () async {
             await context.push('/add', extra: _credentials[i]);
             _load();
@@ -146,46 +206,21 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  Future<void> _backup() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Backup to Google Drive'),
-        content: const Text('Export all credentials to your Drive folder?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Backup')),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    try {
-      final result = await ApiService().backupToGoogleDrive();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Backed up ${result['count']} credentials')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Backup failed: $e')),
-      );
-    }
-  }
 }
+
+// ---------------------------------------------------------------------------
+// Credential card widget
+// ---------------------------------------------------------------------------
 
 class _CredentialCard extends StatelessWidget {
   final Credential credential;
+  final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _CredentialCard({
     required this.credential,
+    required this.onTap,
     required this.onEdit,
     required this.onDelete,
   });
@@ -211,13 +246,147 @@ class _CredentialCard extends StatelessWidget {
             : null,
         trailing: PopupMenuButton<String>(
           onSelected: (v) => v == 'edit' ? onEdit() : onDelete(),
-          itemBuilder: (_) => const [
+          itemBuilder: (context) => const [
             PopupMenuItem(value: 'edit', child: Text('Edit')),
             PopupMenuItem(value: 'delete', child: Text('Delete')),
           ],
         ),
-        onTap: onEdit,
+        onTap: onTap,
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Credential detail bottom sheet — decrypts and reveals the password
+// ---------------------------------------------------------------------------
+
+class _CredentialDetailSheet extends StatefulWidget {
+  final Credential credential;
+  final String masterPassword;
+
+  const _CredentialDetailSheet({
+    required this.credential,
+    required this.masterPassword,
+  });
+
+  @override
+  State<_CredentialDetailSheet> createState() =>
+      _CredentialDetailSheetState();
+}
+
+class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
+  String? _plaintext;
+  bool _decrypting = true;
+  String? _error;
+  bool _obscure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _decrypt();
+  }
+
+  Future<void> _decrypt() async {
+    try {
+      final plaintext = await CryptoService.decrypt(
+        widget.credential.encryptedPayload,
+        widget.credential.iv,
+        widget.masterPassword,
+      );
+      setState(() => _plaintext = plaintext);
+    } catch (e) {
+      setState(() =>
+          _error = e.toString().replaceFirst('Exception: ', ''));
+      // Clear wrong master password from memory
+      if (mounted) {
+        context.read<MasterPasswordProvider>().clear();
+      }
+    } finally {
+      setState(() => _decrypting = false);
+    }
+  }
+
+  void _copy() {
+    if (_plaintext == null) return;
+    Clipboard.setData(ClipboardData(text: _plaintext!));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Password copied')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle bar
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(widget.credential.siteName,
+              style: Theme.of(context).textTheme.headlineSmall),
+          if (widget.credential.usernameHint.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(widget.credential.usernameHint,
+                style: const TextStyle(color: Colors.grey)),
+          ],
+          const SizedBox(height: 24),
+          const Text('Password',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          if (_decrypting)
+            const Center(child: CircularProgressIndicator())
+          else if (_error != null)
+            Text(_error!,
+                style: const TextStyle(color: Colors.red))
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _obscure
+                        ? '•' * (_plaintext?.length ?? 8)
+                        : _plaintext!,
+                    style: const TextStyle(fontSize: 16,
+                        fontFamily: 'monospace'),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                      _obscure ? Icons.visibility : Icons.visibility_off),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                  tooltip: _obscure ? 'Show' : 'Hide',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy),
+                  onPressed: _copy,
+                  tooltip: 'Copy',
+                ),
+              ],
+            ),
+          const SizedBox(height: 16),
+          Text(
+            'Last updated: ${_formatDate(widget.credential.updatedAt)}',
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime dt) {
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
+        '${dt.day.toString().padLeft(2, '0')}';
   }
 }

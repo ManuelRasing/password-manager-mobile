@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/credential.dart';
-
-// Phase 4 will implement encryption here.
-// For now this screen is a shell — the save button is wired up but
-// encryption (CryptoService) is not yet implemented.
+import '../providers/master_password_provider.dart';
+import '../services/api_service.dart';
+import '../services/crypto_service.dart';
+import '../widgets/master_password_dialog.dart';
 
 class AddScreen extends StatefulWidget {
   final Credential? credential; // non-null = edit mode
@@ -20,6 +21,7 @@ class _AddScreenState extends State<AddScreen> {
   final _usernameHintController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  bool _saving = false;
   bool get _isEditing => widget.credential != null;
 
   @override
@@ -28,7 +30,6 @@ class _AddScreenState extends State<AddScreen> {
     if (_isEditing) {
       _siteNameController.text = widget.credential!.siteName;
       _usernameHintController.text = widget.credential!.usernameHint;
-      // Password field stays empty — user must re-enter to update (Phase 4)
     }
   }
 
@@ -40,14 +41,67 @@ class _AddScreenState extends State<AddScreen> {
     super.dispose();
   }
 
-  void _save() {
+  Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    // TODO(Phase 4): encrypt _passwordController.text with CryptoService,
-    // then call ApiService().createCredential() or updateCredential().
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text('Encryption coming in Phase 4 — save not yet wired up')),
-    );
+
+    // Require password on create; optional on edit
+    final passwordInput = _passwordController.text.trim();
+    if (!_isEditing && passwordInput.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Password is required')));
+      return;
+    }
+
+    // Get or prompt for master password
+    final mp = context.read<MasterPasswordProvider>();
+    String? masterPassword = mp.password;
+    if (masterPassword == null) {
+      if (!mounted) return;
+      masterPassword = await showMasterPasswordDialog(context);
+      if (masterPassword == null) return; // user cancelled
+      mp.set(masterPassword);
+    }
+
+    setState(() => _saving = true);
+    try {
+      String encryptedPayload;
+      String iv;
+
+      if (passwordInput.isNotEmpty) {
+        // Encrypt the new password
+        final result =
+            await CryptoService.encrypt(passwordInput, masterPassword);
+        encryptedPayload = result['encryptedPayload']!;
+        iv = result['iv']!;
+      } else {
+        // Edit mode with no new password — keep existing ciphertext
+        encryptedPayload = widget.credential!.encryptedPayload;
+        iv = widget.credential!.iv;
+      }
+
+      final body = {
+        'siteName': _siteNameController.text.trim(),
+        'usernameHint': _usernameHintController.text.trim(),
+        'encryptedPayload': encryptedPayload,
+        'iv': iv,
+      };
+
+      if (_isEditing) {
+        await ApiService().updateCredential(widget.credential!.id, body);
+      } else {
+        await ApiService().createCredential(body);
+      }
+
+      if (!mounted) return;
+      Navigator.pop(context, true); // signal HomeScreen to reload
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${e.toString().replaceFirst('Exception: ', '')}')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -93,14 +147,23 @@ class _AddScreenState extends State<AddScreen> {
                   border: const OutlineInputBorder(),
                 ),
                 obscureText: true,
-                validator: _isEditing
-                    ? null
-                    : (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Password is encrypted on this device before being sent to the server.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 32),
               FilledButton(
-                onPressed: _save,
-                child: Text(_isEditing ? 'Update' : 'Save'),
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : Text(_isEditing ? 'Update' : 'Save'),
               ),
             ],
           ),

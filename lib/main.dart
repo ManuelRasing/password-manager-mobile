@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/add_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_service.dart';
+import 'providers/master_password_provider.dart';
 import 'models/credential.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Check if API key + server URL are already saved.
-  // Redirect to Settings on first launch.
+  // Redirect to Settings on first launch if not yet configured
   final isConfigured = await StorageService.isConfigured();
 
   runApp(PasswordManagerApp(isConfigured: isConfigured));
@@ -43,13 +44,17 @@ class PasswordManagerApp extends StatelessWidget {
       ],
     );
 
-    return MaterialApp.router(
-      title: 'Password Manager',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-        useMaterial3: true,
+    return ChangeNotifierProvider(
+      // MasterPasswordProvider auto-clears when app goes to background
+      create: (_) => MasterPasswordProvider(),
+      child: MaterialApp.router(
+        title: 'Password Manager',
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+          useMaterial3: true,
+        ),
+        routerConfig: router,
       ),
-      routerConfig: router,
     );
   }
 }
