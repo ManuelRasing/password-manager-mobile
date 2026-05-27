@@ -1,0 +1,39 @@
+name: password_manager
+description: Personal password manager mobile app.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Networking
+  http: ^1.2.2
+
+  # Secure storage — uses Android Keystore / iOS Keychain
+  flutter_secure_storage: ^9.2.2
+
+  # HMAC-SHA256 request signing
+  crypto: ^3.0.6
+
+  # AES-256-GCM encryption (Phase 4)
+  encrypt: ^5.0.3
+  pointycastle: ^3.9.1
+
+  # State management
+  provider: ^6.1.5
+
+  # Navigation
+  go_router: ^14.8.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
