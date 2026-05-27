@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/add_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/setup_screen.dart';
+import 'screens/change_master_password_screen.dart';
 import 'services/storage_service.dart';
 import 'providers/master_password_provider.dart';
 import 'models/credential.dart';
@@ -11,25 +13,42 @@ import 'models/credential.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Redirect to Settings on first launch if not yet configured
   final isConfigured = await StorageService.isConfigured();
+  final isMasterPasswordSetup = await StorageService.isMasterPasswordSetup();
 
-  runApp(PasswordManagerApp(isConfigured: isConfigured));
+  // Routing priority:
+  //   1. Not configured → Settings (first launch, no API key/URL)
+  //   2. Configured but no master password → Setup
+  //   3. Fully ready → Home
+  final String initialLocation;
+  if (!isConfigured) {
+    initialLocation = '/settings';
+  } else if (!isMasterPasswordSetup) {
+    initialLocation = '/setup';
+  } else {
+    initialLocation = '/';
+  }
+
+  runApp(PasswordManagerApp(initialLocation: initialLocation));
 }
 
 class PasswordManagerApp extends StatelessWidget {
-  final bool isConfigured;
+  final String initialLocation;
 
-  const PasswordManagerApp({super.key, required this.isConfigured});
+  const PasswordManagerApp({super.key, required this.initialLocation});
 
   @override
   Widget build(BuildContext context) {
     final router = GoRouter(
-      initialLocation: isConfigured ? '/' : '/settings',
+      initialLocation: initialLocation,
       routes: [
         GoRoute(
           path: '/',
           builder: (context, state) => const HomeScreen(),
+        ),
+        GoRoute(
+          path: '/setup',
+          builder: (context, state) => const SetupScreen(),
         ),
         GoRoute(
           path: '/add',
@@ -40,6 +59,10 @@ class PasswordManagerApp extends StatelessWidget {
         GoRoute(
           path: '/settings',
           builder: (context, state) => const SettingsScreen(),
+        ),
+        GoRoute(
+          path: '/change-password',
+          builder: (context, state) => const ChangeMasterPasswordScreen(),
         ),
       ],
     );

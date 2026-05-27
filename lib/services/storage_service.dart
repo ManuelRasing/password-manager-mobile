@@ -12,6 +12,8 @@ class StorageService {
   static const _keyApiKey = 'api_key';
   static const _keyServerUrl = 'server_url';
   static const _keyMasterSalt = 'master_salt';
+  static const _keyVerifierCiphertext = 'verifier_ciphertext';
+  static const _keyVerifierIv = 'verifier_iv';
   static const _keyBiometricEnabled = 'biometric_enabled';
   static const _keyBiometricMasterPassword = 'biometric_master_password';
 
@@ -30,6 +32,21 @@ class StorageService {
   static Future<void> setMasterSalt(String salt) =>
       _storage.write(key: _keyMasterSalt, value: salt);
 
+  // --- Verifier (used to confirm master password without decrypting credentials) ---
+  static Future<String?> getVerifierCiphertext() =>
+      _storage.read(key: _keyVerifierCiphertext);
+  static Future<void> setVerifierCiphertext(String v) =>
+      _storage.write(key: _keyVerifierCiphertext, value: v);
+  static Future<String?> getVerifierIv() =>
+      _storage.read(key: _keyVerifierIv);
+  static Future<void> setVerifierIv(String v) =>
+      _storage.write(key: _keyVerifierIv, value: v);
+
+  static Future<bool> isMasterPasswordSetup() async {
+    final v = await _storage.read(key: _keyVerifierCiphertext);
+    return v != null && v.isNotEmpty;
+  }
+
   // --- Biometric unlock ---
   static Future<bool> isBiometricEnabled() async {
     final v = await _storage.read(key: _keyBiometricEnabled);
@@ -39,8 +56,6 @@ class StorageService {
   static Future<void> setBiometricEnabled(bool enabled) =>
       _storage.write(key: _keyBiometricEnabled, value: enabled.toString());
 
-  /// The master password stored for biometric unlock.
-  /// Only written when the user explicitly enables biometric unlock.
   static Future<String?> getBiometricMasterPassword() =>
       _storage.read(key: _keyBiometricMasterPassword);
 

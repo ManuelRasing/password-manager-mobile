@@ -196,14 +196,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     : const Text('Save'),
               ),
 
-              // ── Biometric unlock ──────────────────────────────────────
+              // ── Security ─────────────────────────────────────────────
+              const SizedBox(height: 32),
+              const Divider(),
+              const SizedBox(height: 16),
+              const Text('Security',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.lock_reset),
+                title: const Text('Change Master Password'),
+                subtitle: const Text(
+                    'Re-encrypts all credentials with a new password'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/change-password'),
+              ),
               if (_biometricAvailable) ...[
-                const SizedBox(height: 32),
-                const Divider(),
-                const SizedBox(height: 16),
-                const Text('Security',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 8),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,

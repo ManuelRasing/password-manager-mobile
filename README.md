@@ -130,8 +130,10 @@ flutter run
 - Android: `FlutterFragmentActivity` + biometric permissions in `AndroidManifest.xml`
 - iOS: `NSFaceIDUsageDescription` in `Info.plist`
 
-### Phase 6 — Master Password Setup Flow _(upcoming)_
-- Dedicated setup screen on first launch (enter + confirm master password)
-- Verifier ciphertext stored in secure storage to detect wrong master password before decrypting
-- Change master password flow (re-encrypts all credentials)
-- Biometric as second factor for master password change verification
+### Phase 6 — Master Password Setup Flow
+- `SetupScreen` — dedicated first-launch screen with enter + confirm fields (min 8 chars); calls `CryptoService.createVerifier` then navigates to Home
+- `ChangeMasterPasswordScreen` — re-encrypts every credential in-place with a progress indicator; only commits the new salt + verifier after all server updates succeed
+- `MasterPasswordDialog` upgraded — verifies entered password against the stored verifier (PBKDF2 comparison) before returning; shows inline "Verifying…" state and "Incorrect master password" error
+- `main.dart` — startup now checks `isMasterPasswordSetup()`; routes to `/setup` if not yet configured; `/change-password` route added
+- Settings screen — "Change Master Password" tile added to Security section
+- Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
