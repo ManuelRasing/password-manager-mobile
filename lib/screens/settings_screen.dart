@@ -66,12 +66,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _testConnection() async {
     setState(() { _testing = true; _testResult = null; });
+    // Save first so ApiService reads the values just entered
     await StorageService.setServerUrl(_serverUrlController.text.trim());
     await StorageService.setApiKey(_apiKeyController.text.trim());
-    final ok = await ApiService().checkHealth();
+    final error = await ApiService().testConnection();
     setState(() {
       _testing    = false;
-      _testResult = ok ? 'Connected successfully' : 'Could not reach server';
+      _testResult = error ?? 'Connected & API key verified ✓';
     });
   }
 
@@ -182,7 +183,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(
                     color: _testResult!.startsWith('Connected')
                         ? Colors.green
-                        : Colors.red,
+                        : Colors.orange,
                   ),
                 ),
               ],

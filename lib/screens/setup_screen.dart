@@ -17,6 +17,7 @@ class SetupScreen extends StatefulWidget {
 class _SetupScreenState extends State<SetupScreen> {
   // Loading state while checking server for existing vault config
   bool _checking = true;
+  String? _checkError; // non-null means server check failed (e.g. bad API key)
   // true  → vault already exists on server (new device / reinstall)
   // false → first-time setup (create new vault)
   bool _vaultExists = false;
@@ -43,6 +44,7 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _checkServer() async {
+    setState(() { _checking = true; _checkError = null; });
     try {
       final config = await ApiService().getVaultConfig();
       if (!mounted) return;
@@ -51,9 +53,13 @@ class _SetupScreenState extends State<SetupScreen> {
         _existingConfig = config;
         _checking       = false;
       });
-    } catch (_) {
-      // Network error — assume first-time setup; user can retry
-      if (mounted) setState(() => _checking = false);
+    } catch (e) {
+      if (!mounted) return;
+      // Surface the error — a wrong API key shows up here as "Invalid signature"
+      setState(() {
+        _checking    = false;
+        _checkError  = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
@@ -117,6 +123,52 @@ class _SetupScreenState extends State<SetupScreen> {
     if (_checking) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Server check failed (wrong API key, network error, etc.)
+    if (_checkError != null) {
+      return Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                const SizedBox(height: 24),
+                const Text(
+                  'Could not reach the server',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _checkError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Make sure your API key in Settings exactly matches the API_KEY environment variable on your server.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+                const SizedBox(height: 32),
+                FilledButton(
+                  onPressed: _checkServer,
+                  child: const Text('Retry'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () => context.go('/settings'),
+                  child: const Text('Back to Settings'),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
 

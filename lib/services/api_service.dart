@@ -164,18 +164,41 @@ class ApiService {
   }
 
   // ---------------------------------------------------------------------------
-  // Health check (unauthenticated — used in Settings to test connection)
+  // Connection test — used in Settings.
+  // Returns null on success, or an error message string on failure.
+  // Tests both network reachability (/health) and HMAC auth (/credentials).
   // ---------------------------------------------------------------------------
 
-  Future<bool> checkHealth() async {
+  Future<String?> testConnection() async {
     try {
       final base = await _baseUrl;
-      final response = await http
+
+      // 1. Network reachability
+      final healthResp = await http
           .get(Uri.parse('$base/health'))
           .timeout(const Duration(seconds: 10));
-      return response.statusCode == 200;
+      if (healthResp.statusCode != 200) {
+        return 'Server unreachable (${healthResp.statusCode})';
+      }
+
+      // 2. HMAC authentication — a GET /credentials verifies the API key
+      const path = '/credentials';
+      final headers = await _signedHeaders('GET', path);
+      final authResp = await http
+          .get(Uri.parse('$base$path'), headers: headers)
+          .timeout(const Duration(seconds: 10));
+      if (authResp.statusCode == 401) {
+        return 'API key is incorrect — check it matches your server\'s API_KEY';
+      }
+      if (authResp.statusCode != 200) {
+        return 'Auth check failed (${authResp.statusCode})';
+      }
+
+      return null; // success
+    } on Exception catch (e) {
+      return e.toString().replaceFirst('Exception: ', '');
     } catch (_) {
-      return false;
+      return 'Could not reach server';
     }
   }
 
