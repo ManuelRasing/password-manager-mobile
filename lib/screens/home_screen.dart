@@ -27,9 +27,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _searchController = TextEditingController();
   String _searchQuery = '';
 
-  // Biometric
-  bool _biometricEnabled = false;
-
   List<Credential> get _filtered => _searchQuery.isEmpty
       ? _credentials
       : _credentials
@@ -47,7 +44,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _load();
-    _checkBiometric();
     _searchController.addListener(() {
       setState(() => _searchQuery = _searchController.text);
     });
@@ -60,34 +56,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // When app resumes from background, auto-trigger biometric if enabled
+  // When app resumes from background, refresh biometric state then auto-unlock
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      final mp = context.read<MasterPasswordProvider>();
-      if (!mp.isUnlocked && _biometricEnabled) {
-        _tryBiometricUnlock();
-      }
+      _onResumed();
     }
   }
 
-  Future<void> _checkBiometric() async {
+  Future<void> _onResumed() async {
+    // Always re-read the flag — it may have changed while we were in Settings
     final enabled = await StorageService.isBiometricEnabled();
-    setState(() => _biometricEnabled = enabled);
-  }
+    if (!mounted) return;
+    final mp = context.read<MasterPasswordProvider>();
+    if (mp.isUnlocked) return;
 
-  Future<void> _tryBiometricUnlock() async {
-    final authenticated = await BiometricService.authenticate(
-        'Unlock Password Manager');
-    if (!authenticated || !mounted) return;
-
-    final stored = await StorageService.getBiometricMasterPassword();
-    if (stored != null && mounted) {
-      context.read<MasterPasswordProvider>().set(stored);
+    if (enabled) {
+      final authenticated =
+          await BiometricService.authenticate('Unlock Password Manager');
+      if (!mounted) return;
+      if (authenticated) {
+        final stored = await StorageService.getBiometricMasterPassword();
+        if (stored != null && mounted) {
+          mp.set(stored);
+          return; // unlocked — done
+        }
+      }
+      // Biometric cancelled / failed — fall through to manual dialog
     }
+
+    // Show manual dialog as fallback so the user can still unlock
+    if (!mounted) return;
+    final entered = await showMasterPasswordDialog(context);
+    if (entered != null && mounted) mp.set(entered);
   }
 
-  Future<void> _load() async {
+Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
@@ -134,20 +138,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final mp = context.read<MasterPasswordProvider>();
     if (mp.isUnlocked) return mp.password;
 
-    // Try biometric first if enabled
-    if (_biometricEnabled) {
-      final ok =
-          await BiometricService.authenticate('Unlock Password Manager');
-      if (ok && mounted) {
-        final stored = await StorageService.getBiometricMasterPassword();
-        if (stored != null) {
-          mp.set(stored);
-          return stored;
-        }
-      }
-    }
-
-    // Fall back to manual entry
+    // Biometric is handled by _onResumed on app resume.
+    // Here we go straight to manual entry to avoid double-prompting.
     if (!mounted) return null;
     final entered = await showMasterPasswordDialog(context);
     if (entered != null) mp.set(entered);
@@ -402,10 +394,13 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
         widget.masterPassword,
       );
       setState(() => _plaintext = p);
-    } catch (e) {
-      setState(
-          () => _error = e.toString().replaceFirst('Exception: ', ''));
-      if (mounted) context.read<MasterPasswordProvider>().clear();
+    } catch (_) {
+      // Decryption can fail if this credential was encrypted on a different
+      // device or before a reinstall (the per-device salt differs).
+      // The master password itself is likely correct — don't clear it.
+      setState(() => _error =
+          'Could not decrypt this credential. It may have been encrypted on '
+          'a different device or before a reinstall. Delete and re-add it.');
     } finally {
       setState(() => _decrypting = false);
     }
