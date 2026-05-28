@@ -1,12 +1,15 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 import '../services/crypto_service.dart';
-import '../services/storage_service.dart';
 
-/// Shows a dialog prompting for the master password.
-/// If a verifier is stored, the entered password is verified before returning.
-/// Returns the entered password, or null if the user cancels.
-Future<String?> showMasterPasswordDialog(BuildContext context) {
-  return showDialog<String>(
+/// Shows the master-password dialog.
+///
+/// Fetches the vault config from the server, derives the master key, and
+/// decrypts the vault key.  Returns the raw vault key on success, or null
+/// if the user cancels.  Shows an inline error on wrong password.
+Future<Uint8List?> showMasterPasswordDialog(BuildContext context) {
+  return showDialog<Uint8List>(
     context: context,
     barrierDismissible: false,
     builder: (_) => const _MasterPasswordDialog(),
@@ -23,7 +26,7 @@ class _MasterPasswordDialog extends StatefulWidget {
 class _MasterPasswordDialogState extends State<_MasterPasswordDialog> {
   final _controller = TextEditingController();
   bool _obscure = true;
-  bool _verifying = false;
+  bool _working = false;
   String? _error;
 
   @override
@@ -33,32 +36,36 @@ class _MasterPasswordDialogState extends State<_MasterPasswordDialog> {
   }
 
   Future<void> _submit() async {
-    final value = _controller.text.trim();
-    if (value.isEmpty) return;
-
-    // Only verify if a verifier exists (i.e. master password has been set up)
-    final isSetup = await StorageService.isMasterPasswordSetup();
-    if (!isSetup) {
-      // No verifier yet — just return as-is (shouldn't normally reach here)
-      if (mounted) Navigator.pop(context, value);
-      return;
-    }
+    final password = _controller.text.trim();
+    if (password.isEmpty) return;
 
     setState(() {
-      _verifying = true;
+      _working = true;
       _error = null;
     });
 
-    final correct = await CryptoService.verifyMasterPassword(value);
+    try {
+      final config = await ApiService().getVaultConfig();
+      if (!mounted) return;
+      if (config == null) {
+        setState(() => _error = 'Vault not configured — please complete setup.');
+        return;
+      }
 
-    if (!mounted) return;
-    if (correct) {
-      Navigator.pop(context, value);
-    } else {
-      setState(() {
-        _verifying = false;
-        _error = 'Incorrect master password';
-      });
+      final vaultKey = await CryptoService.unlockVault(
+        password,
+        config['masterSalt']!,
+        config['encryptedVaultKey']!,
+        config['vaultKeyIv']!,
+      );
+
+      if (mounted) Navigator.pop(context, vaultKey);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Incorrect master password');
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
     }
   }
 
@@ -73,29 +80,29 @@ class _MasterPasswordDialogState extends State<_MasterPasswordDialog> {
             controller: _controller,
             obscureText: _obscure,
             autofocus: true,
-            enabled: !_verifying,
+            enabled: !_working,
             decoration: InputDecoration(
               labelText: 'Enter master password',
               border: const OutlineInputBorder(),
               errorText: _error,
               suffixIcon: IconButton(
-                icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                icon:
+                    Icon(_obscure ? Icons.visibility : Icons.visibility_off),
                 onPressed: () => setState(() => _obscure = !_obscure),
               ),
             ),
-            onSubmitted: (_) => _verifying ? null : _submit(),
+            onSubmitted: (_) => _working ? null : _submit(),
           ),
-          if (_verifying) ...[
+          if (_working) ...[
             const SizedBox(height: 16),
             const Row(
               children: [
                 SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
                 SizedBox(width: 12),
-                Text('Verifying…', style: TextStyle(color: Colors.grey)),
+                Text('Unlocking…', style: TextStyle(color: Colors.grey)),
               ],
             ),
           ],
@@ -103,11 +110,11 @@ class _MasterPasswordDialogState extends State<_MasterPasswordDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _verifying ? null : () => Navigator.pop(context, null),
+          onPressed: _working ? null : () => Navigator.pop(context, null),
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: _verifying ? null : _submit,
+          onPressed: _working ? null : _submit,
           child: const Text('Unlock'),
         ),
       ],

@@ -130,6 +130,19 @@ flutter run
 - Android: `FlutterFragmentActivity` + biometric permissions in `AndroidManifest.xml`
 - iOS: `NSFaceIDUsageDescription` in `Info.plist`
 
+### Phase 7 — Vault Key Model (envelope encryption)
+- **`CryptoService`** rewritten: `setupVault`, `unlockVault`, `rotateMasterPassword`, `encrypt`, `decrypt`
+  - Vault key is a random 256-bit key generated once; master key (PBKDF2) only wraps it
+  - Credential encrypt/decrypt is now synchronous (vault key already in memory — no PBKDF2 per operation)
+- **`MasterPasswordProvider`** now stores `Uint8List vaultKey` instead of a password string
+- **`StorageService`** simplified: removed per-device salt + verifier keys; biometric now stores vault key (base64), not the master password — survives master-password changes
+- **`ApiService`** extended: `getVaultConfig()` and `putVaultConfig()` methods
+- **`MasterPasswordDialog`** fetches vault config from server, derives master key, decrypts vault key; returns `Uint8List` on success
+- **`SetupScreen`** checks server on load: create mode (new vault) vs unlock mode (existing vault on new device / reinstall)
+- **`ChangeMasterPasswordScreen`** simplified: re-wraps vault key only — no credential re-encryption
+- **`main.dart`** uses `isVaultSetup()` local flag backed by `vault_setup` in secure storage
+- Multi-device and reinstall safe: vault config lives on server, any device can unlock with the master password
+
 ### Phase 6 — Master Password Setup Flow
 - `SetupScreen` — dedicated first-launch screen with enter + confirm fields (min 8 chars); calls `CryptoService.createVerifier` then navigates to Home
 - `ChangeMasterPasswordScreen` — re-encrypts every credential in-place with a progress indicator; only commits the new salt + verifier after all server updates succeed

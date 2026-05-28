@@ -113,6 +113,43 @@ class ApiService {
   }
 
   // ---------------------------------------------------------------------------
+  // Vault config
+  // ---------------------------------------------------------------------------
+
+  /// Returns the stored vault config, or null if it has never been set up (404).
+  Future<Map<String, String>?> getVaultConfig() async {
+    const path = '/vault-config';
+    final base = await _baseUrl;
+    final headers = await _signedHeaders('GET', path);
+
+    final response =
+        await http.get(Uri.parse('$base$path'), headers: headers);
+    if (response.statusCode == 404) return null;
+    _assertSuccess(response, 200);
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return {
+      'masterSalt':        data['masterSalt']        as String,
+      'encryptedVaultKey': data['encryptedVaultKey'] as String,
+      'vaultKeyIv':        data['vaultKeyIv']        as String,
+    };
+  }
+
+  /// Creates or replaces the vault config on the server.
+  Future<void> putVaultConfig(Map<String, String> config) async {
+    const path = '/vault-config';
+    final base = await _baseUrl;
+    final headers = await _signedHeaders('PUT', path, body: config);
+
+    final response = await http.put(
+      Uri.parse('$base$path'),
+      headers: headers,
+      body: jsonEncode(config),
+    );
+    _assertSuccess(response, 200);
+  }
+
+  // ---------------------------------------------------------------------------
   // Backup
   // ---------------------------------------------------------------------------
 

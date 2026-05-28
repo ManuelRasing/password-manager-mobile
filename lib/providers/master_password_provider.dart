@@ -1,13 +1,14 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
-/// Holds the master password in memory only — never written to disk.
+/// Holds the vault key in memory only — never written to disk.
 ///
-/// Automatically clears when the app goes to background (paused state).
-/// This ensures the password is not accessible if the device is locked
-/// or the app is switched away from.
+/// The vault key is the true AES-256 encryption key for all credentials.
+/// It is obtained by unlocking the vault (PBKDF2 + AES-GCM unwrap) and
+/// discarded as soon as the app goes to the background.
 class MasterPasswordProvider extends ChangeNotifier
     with WidgetsBindingObserver {
-  String? _password;
+  Uint8List? _vaultKey;
 
   MasterPasswordProvider() {
     WidgetsBinding.instance.addObserver(this);
@@ -28,17 +29,17 @@ class MasterPasswordProvider extends ChangeNotifier
     }
   }
 
-  String? get password => _password;
-  bool get isUnlocked => _password != null;
+  Uint8List? get vaultKey => _vaultKey;
+  bool get isUnlocked => _vaultKey != null;
 
-  void set(String password) {
-    _password = password;
+  void set(Uint8List vaultKey) {
+    _vaultKey = vaultKey;
     notifyListeners();
   }
 
   void clear() {
-    if (_password != null) {
-      _password = null;
+    if (_vaultKey != null) {
+      _vaultKey = null;
       notifyListeners();
     }
   }

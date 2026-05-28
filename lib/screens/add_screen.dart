@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/credential.dart';
@@ -17,10 +18,10 @@ class AddScreen extends StatefulWidget {
 }
 
 class _AddScreenState extends State<AddScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _siteNameController = TextEditingController();
-  final _usernameHintController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _formKey              = GlobalKey<FormState>();
+  final _siteNameController   = TextEditingController();
+  final _usernameController   = TextEditingController();
+  final _passwordController   = TextEditingController();
 
   bool _saving = false;
   bool get _isEditing => widget.credential != null;
@@ -29,15 +30,15 @@ class _AddScreenState extends State<AddScreen> {
   void initState() {
     super.initState();
     if (_isEditing) {
-      _siteNameController.text = widget.credential!.siteName;
-      _usernameHintController.text = widget.credential!.usernameHint;
+      _siteNameController.text  = widget.credential!.siteName;
+      _usernameController.text  = widget.credential!.usernameHint;
     }
   }
 
   @override
   void dispose() {
     _siteNameController.dispose();
-    _usernameHintController.dispose();
+    _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -45,7 +46,6 @@ class _AddScreenState extends State<AddScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Require password on create; optional on edit
     final passwordInput = _passwordController.text.trim();
     if (!_isEditing && passwordInput.isEmpty) {
       ScaffoldMessenger.of(context)
@@ -53,14 +53,14 @@ class _AddScreenState extends State<AddScreen> {
       return;
     }
 
-    // Get or prompt for master password
+    // Ensure vault is unlocked
     final mp = context.read<MasterPasswordProvider>();
-    String? masterPassword = mp.password;
-    if (masterPassword == null) {
+    Uint8List? vaultKey = mp.vaultKey;
+    if (vaultKey == null) {
       if (!mounted) return;
-      masterPassword = await showMasterPasswordDialog(context);
-      if (masterPassword == null) return; // user cancelled
-      mp.set(masterPassword);
+      vaultKey = await showMasterPasswordDialog(context);
+      if (vaultKey == null) return; // user cancelled
+      mp.set(vaultKey);
     }
 
     setState(() => _saving = true);
@@ -69,22 +69,20 @@ class _AddScreenState extends State<AddScreen> {
       String iv;
 
       if (passwordInput.isNotEmpty) {
-        // Encrypt the new password
-        final result =
-            await CryptoService.encrypt(passwordInput, masterPassword);
+        final result = CryptoService.encrypt(passwordInput, vaultKey);
         encryptedPayload = result['encryptedPayload']!;
-        iv = result['iv']!;
+        iv               = result['iv']!;
       } else {
-        // Edit mode with no new password — keep existing ciphertext
+        // Edit mode — no new password, keep existing ciphertext
         encryptedPayload = widget.credential!.encryptedPayload;
-        iv = widget.credential!.iv;
+        iv               = widget.credential!.iv;
       }
 
       final body = {
-        'siteName': _siteNameController.text.trim(),
-        'usernameHint': _usernameHintController.text.trim(),
+        'siteName':         _siteNameController.text.trim(),
+        'usernameHint':     _usernameController.text.trim(),
         'encryptedPayload': encryptedPayload,
-        'iv': iv,
+        'iv':               iv,
       };
 
       if (_isEditing) {
@@ -94,12 +92,12 @@ class _AddScreenState extends State<AddScreen> {
       }
 
       if (!mounted) return;
-      Navigator.pop(context, true); // signal HomeScreen to reload
+      Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString().replaceFirst('Exception: ', '')}')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Error: ${e.toString().replaceFirst('Exception: ', '')}')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -131,7 +129,7 @@ class _AddScreenState extends State<AddScreen> {
               ),
               const SizedBox(height: 16),
               TextFormField(
-                controller: _usernameHintController,
+                controller: _usernameController,
                 decoration: const InputDecoration(
                   labelText: 'Username / Email (hint)',
                   hintText: 'e.g. me@email.com',
@@ -173,8 +171,7 @@ class _AddScreenState extends State<AddScreen> {
                         height: 16,
                         width: 16,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
+                            strokeWidth: 2, color: Colors.white))
                     : Text(_isEditing ? 'Update' : 'Save'),
               ),
             ],

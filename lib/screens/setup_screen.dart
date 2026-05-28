@@ -1,8 +1,11 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/master_password_provider.dart';
+import '../services/api_service.dart';
 import '../services/crypto_service.dart';
+import '../services/storage_service.dart';
 
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
@@ -12,12 +15,25 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
+  // Loading state while checking server for existing vault config
+  bool _checking = true;
+  // true  → vault already exists on server (new device / reinstall)
+  // false → first-time setup (create new vault)
+  bool _vaultExists = false;
+  Map<String, String>? _existingConfig;
+
   final _formKey = GlobalKey<FormState>();
-  final _passwordController = TextEditingController();
-  final _confirmController = TextEditingController();
+  final _passwordController  = TextEditingController();
+  final _confirmController   = TextEditingController();
   bool _obscurePassword = true;
-  bool _obscureConfirm = true;
+  bool _obscureConfirm  = true;
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkServer();
+  }
 
   @override
   void dispose() {
@@ -26,14 +42,38 @@ class _SetupScreenState extends State<SetupScreen> {
     super.dispose();
   }
 
-  Future<void> _save() async {
+  Future<void> _checkServer() async {
+    try {
+      final config = await ApiService().getVaultConfig();
+      if (!mounted) return;
+      setState(() {
+        _vaultExists    = config != null;
+        _existingConfig = config;
+        _checking       = false;
+      });
+    } catch (_) {
+      // Network error — assume first-time setup; user can retry
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  // ── First-time setup: create a brand-new vault ────────────────────────────
+  Future<void> _createVault() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      final password = _passwordController.text;
-      await CryptoService.createVerifier(password);
+      final result =
+          await CryptoService.setupVault(_passwordController.text);
+
+      await ApiService().putVaultConfig({
+        'masterSalt':        result.masterSalt,
+        'encryptedVaultKey': result.encryptedVaultKey,
+        'vaultKeyIv':        result.vaultKeyIv,
+      });
+
+      await StorageService.setVaultSetup(true);
       if (!mounted) return;
-      context.read<MasterPasswordProvider>().set(password);
+      context.read<MasterPasswordProvider>().set(result.vaultKey);
       context.go('/');
     } catch (e) {
       if (!mounted) return;
@@ -45,8 +85,41 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
+  // ── New-device unlock: vault exists, just derive the vault key ────────────
+  Future<void> _unlockExisting() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      final config = _existingConfig!;
+      final Uint8List vaultKey = await CryptoService.unlockVault(
+        _passwordController.text,
+        config['masterSalt']!,
+        config['encryptedVaultKey']!,
+        config['vaultKeyIv']!,
+      );
+
+      await StorageService.setVaultSetup(true);
+      if (!mounted) return;
+      context.read<MasterPasswordProvider>().set(vaultKey);
+      context.go('/');
+    } on Exception catch (e) {
+      if (!mounted) return;
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(msg)));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_checking) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
@@ -60,65 +133,78 @@ class _SetupScreenState extends State<SetupScreen> {
                 const Icon(Icons.lock_outline, size: 80, color: Colors.indigo),
                 const SizedBox(height: 24),
                 Text(
-                  'Set Master Password',
+                  _vaultExists
+                      ? 'Welcome Back'
+                      : 'Set Master Password',
                   style: Theme.of(context).textTheme.headlineMedium,
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'This password encrypts all your credentials. It is never stored or '
-                  'transmitted — if you forget it, your data cannot be recovered.',
+                Text(
+                  _vaultExists
+                      ? 'Enter your master password to unlock your vault on this device.'
+                      : 'This password encrypts all your credentials. It is never stored or '
+                        'transmitted — if you forget it, your data cannot be recovered.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
+                  style: const TextStyle(color: Colors.grey),
                 ),
                 const SizedBox(height: 40),
+                // ── Password field ──────────────────────────────────────────
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
                   autofocus: true,
                   decoration: InputDecoration(
-                    labelText: 'Master Password',
+                    labelText:
+                        _vaultExists ? 'Master Password' : 'Master Password',
                     border: const OutlineInputBorder(),
                     suffixIcon: IconButton(
                       icon: Icon(_obscurePassword
                           ? Icons.visibility
                           : Icons.visibility_off),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
+                      onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword),
                     ),
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) return 'Required';
-                    if (v.trim().length < 8) return 'Minimum 8 characters';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _confirmController,
-                  obscureText: _obscureConfirm,
-                  decoration: InputDecoration(
-                    labelText: 'Confirm Password',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscureConfirm
-                          ? Icons.visibility
-                          : Icons.visibility_off),
-                      onPressed: () =>
-                          setState(() => _obscureConfirm = !_obscureConfirm),
-                    ),
-                  ),
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Required';
-                    if (v.trim() != _passwordController.text.trim()) {
-                      return 'Passwords do not match';
+                    if (!_vaultExists && v.trim().length < 8) {
+                      return 'Minimum 8 characters';
                     }
                     return null;
                   },
                 ),
+                // ── Confirm field (create mode only) ────────────────────────
+                if (!_vaultExists) ...[
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _confirmController,
+                    obscureText: _obscureConfirm,
+                    decoration: InputDecoration(
+                      labelText: 'Confirm Password',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscureConfirm
+                            ? Icons.visibility
+                            : Icons.visibility_off),
+                        onPressed: () => setState(
+                            () => _obscureConfirm = !_obscureConfirm),
+                      ),
+                    ),
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Required';
+                      if (v.trim() != _passwordController.text.trim()) {
+                        return 'Passwords do not match';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
                 const SizedBox(height: 32),
                 FilledButton(
-                  onPressed: _saving ? null : _save,
+                  onPressed: _saving
+                      ? null
+                      : (_vaultExists ? _unlockExisting : _createVault),
                   child: _saving
                       ? const SizedBox(
                           height: 16,
@@ -126,7 +212,7 @@ class _SetupScreenState extends State<SetupScreen> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white),
                         )
-                      : const Text('Set Password'),
+                      : Text(_vaultExists ? 'Unlock' : 'Set Password'),
                 ),
               ],
             ),

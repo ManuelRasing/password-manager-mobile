@@ -9,13 +9,11 @@ class StorageService {
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
   );
 
-  static const _keyApiKey = 'api_key';
-  static const _keyServerUrl = 'server_url';
-  static const _keyMasterSalt = 'master_salt';
-  static const _keyVerifierCiphertext = 'verifier_ciphertext';
-  static const _keyVerifierIv = 'verifier_iv';
-  static const _keyBiometricEnabled = 'biometric_enabled';
-  static const _keyBiometricMasterPassword = 'biometric_master_password';
+  static const _keyApiKey            = 'api_key';
+  static const _keyServerUrl         = 'server_url';
+  static const _keyVaultSetup        = 'vault_setup';         // local flag
+  static const _keyBiometricEnabled  = 'biometric_enabled';
+  static const _keyBiometricVaultKey = 'biometric_vault_key'; // base64 vault key
 
   // --- API Key ---
   static Future<String?> getApiKey() => _storage.read(key: _keyApiKey);
@@ -27,27 +25,22 @@ class StorageService {
   static Future<void> setServerUrl(String url) =>
       _storage.write(key: _keyServerUrl, value: url);
 
-  // --- Master Salt ---
-  static Future<String?> getMasterSalt() => _storage.read(key: _keyMasterSalt);
-  static Future<void> setMasterSalt(String salt) =>
-      _storage.write(key: _keyMasterSalt, value: salt);
-
-  // --- Verifier (used to confirm master password without decrypting credentials) ---
-  static Future<String?> getVerifierCiphertext() =>
-      _storage.read(key: _keyVerifierCiphertext);
-  static Future<void> setVerifierCiphertext(String v) =>
-      _storage.write(key: _keyVerifierCiphertext, value: v);
-  static Future<String?> getVerifierIv() =>
-      _storage.read(key: _keyVerifierIv);
-  static Future<void> setVerifierIv(String v) =>
-      _storage.write(key: _keyVerifierIv, value: v);
-
-  static Future<bool> isMasterPasswordSetup() async {
-    final v = await _storage.read(key: _keyVerifierCiphertext);
-    return v != null && v.isNotEmpty;
+  // --- Vault setup flag ---
+  // Set to true after the vault config has been created and uploaded to the
+  // server.  Used at startup to decide whether to show the setup screen.
+  static Future<bool> isVaultSetup() async {
+    final v = await _storage.read(key: _keyVaultSetup);
+    return v == 'true';
   }
 
+  static Future<void> setVaultSetup(bool value) =>
+      _storage.write(key: _keyVaultSetup, value: value.toString());
+
   // --- Biometric unlock ---
+  // Stores the vault key (base64-encoded) so biometric auth can restore the
+  // session without a PBKDF2 round-trip.  The stored value is the vault key,
+  // NOT the master password — it does not need to change when the master
+  // password changes.
   static Future<bool> isBiometricEnabled() async {
     final v = await _storage.read(key: _keyBiometricEnabled);
     return v == 'true';
@@ -56,23 +49,21 @@ class StorageService {
   static Future<void> setBiometricEnabled(bool enabled) =>
       _storage.write(key: _keyBiometricEnabled, value: enabled.toString());
 
-  static Future<String?> getBiometricMasterPassword() =>
-      _storage.read(key: _keyBiometricMasterPassword);
+  static Future<String?> getBiometricVaultKey() =>
+      _storage.read(key: _keyBiometricVaultKey);
 
-  static Future<void> setBiometricMasterPassword(String password) =>
-      _storage.write(key: _keyBiometricMasterPassword, value: password);
+  static Future<void> setBiometricVaultKey(String base64Key) =>
+      _storage.write(key: _keyBiometricVaultKey, value: base64Key);
 
-  static Future<void> clearBiometricMasterPassword() =>
-      _storage.delete(key: _keyBiometricMasterPassword);
+  static Future<void> clearBiometricVaultKey() =>
+      _storage.delete(key: _keyBiometricVaultKey);
 
-  // --- Setup check ---
+  // --- Setup check (API key + server URL configured) ---
   static Future<bool> isConfigured() async {
-    final apiKey = await _storage.read(key: _keyApiKey);
+    final apiKey    = await _storage.read(key: _keyApiKey);
     final serverUrl = await _storage.read(key: _keyServerUrl);
-    return apiKey != null &&
-        apiKey.isNotEmpty &&
-        serverUrl != null &&
-        serverUrl.isNotEmpty;
+    return apiKey    != null && apiKey.isNotEmpty &&
+           serverUrl != null && serverUrl.isNotEmpty;
   }
 
   static Future<void> clearAll() => _storage.deleteAll();

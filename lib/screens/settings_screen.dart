@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -15,17 +17,17 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _formKey = GlobalKey<FormState>();
+  final _formKey            = GlobalKey<FormState>();
   final _serverUrlController = TextEditingController();
-  final _apiKeyController = TextEditingController();
+  final _apiKeyController    = TextEditingController();
 
-  bool _saving = false;
+  bool _saving  = false;
   bool _testing = false;
   String? _testResult;
 
   bool _biometricAvailable = false;
-  bool _biometricEnabled = false;
-  bool _togglingBiometric = false;
+  bool _biometricEnabled   = false;
+  bool _togglingBiometric  = false;
 
   @override
   void initState() {
@@ -34,16 +36,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
-    final url = await StorageService.getServerUrl();
-    final key = await StorageService.getApiKey();
+    final url          = await StorageService.getServerUrl();
+    final key          = await StorageService.getApiKey();
     final bioAvailable = await BiometricService.isAvailable();
-    final bioEnabled = await StorageService.isBiometricEnabled();
+    final bioEnabled   = await StorageService.isBiometricEnabled();
+    if (!mounted) return;
     setState(() {
       _serverUrlController.text =
           url ?? 'https://password-manager-server-9shr.onrender.com';
-      _apiKeyController.text = key ?? '';
-      _biometricAvailable = bioAvailable;
-      _biometricEnabled = bioEnabled;
+      _apiKeyController.text    = key ?? '';
+      _biometricAvailable       = bioAvailable;
+      _biometricEnabled         = bioEnabled;
     });
   }
 
@@ -60,15 +63,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _testConnection() async {
-    setState(() {
-      _testing = true;
-      _testResult = null;
-    });
+    setState(() { _testing = true; _testResult = null; });
     await StorageService.setServerUrl(_serverUrlController.text.trim());
     await StorageService.setApiKey(_apiKeyController.text.trim());
     final ok = await ApiService().checkHealth();
     setState(() {
-      _testing = false;
+      _testing    = false;
       _testResult = ok ? 'Connected successfully' : 'Could not reach server';
     });
   }
@@ -77,21 +77,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _togglingBiometric = true);
     try {
       if (enable) {
-        // Require master password to enable biometric unlock
-        String? masterPassword =
-            context.read<MasterPasswordProvider>().password;
-        if (masterPassword == null) {
-          masterPassword = await showMasterPasswordDialog(context);
-          if (masterPassword == null || !mounted) return; // user cancelled
-          context.read<MasterPasswordProvider>().set(masterPassword);
+        // Get vault key from provider or unlock now
+        Uint8List? vaultKey =
+            context.read<MasterPasswordProvider>().vaultKey;
+        if (vaultKey == null) {
+          vaultKey = await showMasterPasswordDialog(context);
+          if (vaultKey == null || !mounted) return;
+          context.read<MasterPasswordProvider>().set(vaultKey);
         }
 
-        // Confirm with biometric before storing
+        // Confirm with biometric before storing the vault key
         final ok = await BiometricService.authenticate(
             'Confirm to enable biometric unlock');
         if (!ok || !mounted) return;
 
-        await StorageService.setBiometricMasterPassword(masterPassword);
+        await StorageService.setBiometricVaultKey(base64.encode(vaultKey));
         await StorageService.setBiometricEnabled(true);
         setState(() => _biometricEnabled = true);
 
@@ -100,7 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SnackBar(content: Text('Biometric unlock enabled')));
         }
       } else {
-        await StorageService.clearBiometricMasterPassword();
+        await StorageService.clearBiometricVaultKey();
         await StorageService.setBiometricEnabled(false);
         setState(() => _biometricEnabled = false);
 
@@ -201,14 +201,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Divider(),
               const SizedBox(height: 16),
               const Text('Security',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.lock_reset),
                 title: const Text('Change Master Password'),
                 subtitle: const Text(
-                    'Re-encrypts all credentials with a new password'),
+                    'Re-wraps the vault key — credentials are unaffected'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.push('/change-password'),
               ),

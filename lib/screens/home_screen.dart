@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -44,9 +45,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _load();
-    _searchController.addListener(() {
-      setState(() => _searchQuery = _searchController.text);
-    });
+    _searchController.addListener(
+        () => setState(() => _searchQuery = _searchController.text));
   }
 
   @override
@@ -56,46 +56,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // When app resumes from background, refresh biometric state then auto-unlock
+  // ── App lifecycle: auto-unlock via biometric on resume ────────────────────
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _onResumed();
-    }
+    if (state == AppLifecycleState.resumed) _onResumed();
   }
 
   Future<void> _onResumed() async {
-    // Always re-read the flag — it may have changed while we were in Settings
-    final enabled = await StorageService.isBiometricEnabled();
-    if (!mounted) return;
     final mp = context.read<MasterPasswordProvider>();
     if (mp.isUnlocked) return;
 
-    if (enabled) {
+    final bioEnabled = await StorageService.isBiometricEnabled();
+    if (!mounted) return;
+
+    if (bioEnabled) {
       final authenticated =
           await BiometricService.authenticate('Unlock Password Manager');
       if (!mounted) return;
       if (authenticated) {
-        final stored = await StorageService.getBiometricMasterPassword();
-        if (stored != null && mounted) {
-          mp.set(stored);
+        final storedB64 = await StorageService.getBiometricVaultKey();
+        if (storedB64 != null && mounted) {
+          mp.set(base64.decode(storedB64));
           return; // unlocked — done
         }
       }
-      // Biometric cancelled / failed — fall through to manual dialog
     }
 
-    // Show manual dialog as fallback so the user can still unlock
+    // Biometric cancelled / unavailable — fall back to manual dialog
     if (!mounted) return;
-    final entered = await showMasterPasswordDialog(context);
-    if (entered != null && mounted) mp.set(entered);
+    final vaultKey = await showMasterPasswordDialog(context);
+    if (vaultKey != null && mounted) mp.set(vaultKey);
   }
 
-Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  // ── Data loading ──────────────────────────────────────────────────────────
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
     try {
       final credentials = await ApiService().getCredentials();
       setState(() => _credentials = credentials);
@@ -104,6 +99,33 @@ Future<void> _load() async {
     } finally {
       setState(() => _loading = false);
     }
+  }
+
+  // ── Unlock helper ─────────────────────────────────────────────────────────
+  // Called before any operation that needs the vault key.
+  // Biometric was already tried by _onResumed; here we go straight to dialog.
+  Future<Uint8List?> _ensureUnlocked() async {
+    final mp = context.read<MasterPasswordProvider>();
+    if (mp.isUnlocked) return mp.vaultKey;
+    if (!mounted) return null;
+    final vaultKey = await showMasterPasswordDialog(context);
+    if (vaultKey != null && mounted) mp.set(vaultKey);
+    return vaultKey;
+  }
+
+  // ── Credential actions ────────────────────────────────────────────────────
+  Future<void> _showDetail(Credential credential) async {
+    final vaultKey = await _ensureUnlocked();
+    if (vaultKey == null || !mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => _CredentialDetailSheet(
+        credential: credential,
+        vaultKey: vaultKey,
+      ),
+    );
   }
 
   Future<void> _delete(Credential credential) async {
@@ -128,36 +150,9 @@ Future<void> _load() async {
       _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Delete failed: $e')));
     }
-  }
-
-  Future<String?> _ensureMasterPassword() async {
-    final mp = context.read<MasterPasswordProvider>();
-    if (mp.isUnlocked) return mp.password;
-
-    // Biometric is handled by _onResumed on app resume.
-    // Here we go straight to manual entry to avoid double-prompting.
-    if (!mounted) return null;
-    final entered = await showMasterPasswordDialog(context);
-    if (entered != null) mp.set(entered);
-    return entered;
-  }
-
-  Future<void> _showDetail(Credential credential) async {
-    final masterPassword = await _ensureMasterPassword();
-    if (masterPassword == null || !mounted) return;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => _CredentialDetailSheet(
-        credential: credential,
-        masterPassword: masterPassword,
-      ),
-    );
   }
 
   Future<void> _backup() async {
@@ -165,7 +160,8 @@ Future<void> _load() async {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Backup to Google Drive'),
-        content: const Text('Export all credentials to your Drive folder?'),
+        content:
+            const Text('Export all credentials to your Drive folder?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -181,8 +177,7 @@ Future<void> _load() async {
       final result = await ApiService().backupToGoogleDrive();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Backed up ${result['count']} credentials')),
-      );
+          SnackBar(content: Text('Backed up ${result['count']} credentials')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -190,6 +185,7 @@ Future<void> _load() async {
     }
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Consumer<MasterPasswordProvider>(
@@ -214,9 +210,7 @@ Future<void> _load() async {
                 onPressed: () {
                   setState(() {
                     _searchActive = !_searchActive;
-                    if (!_searchActive) {
-                      _searchController.clear();
-                    }
+                    if (!_searchActive) _searchController.clear();
                   });
                 },
               ),
@@ -232,7 +226,7 @@ Future<void> _load() async {
               ),
             ],
           ),
-          body: _buildBody(mp),
+          body: _buildBody(),
           floatingActionButton: FloatingActionButton(
             onPressed: () async {
               await context.push('/add');
@@ -246,7 +240,7 @@ Future<void> _load() async {
     );
   }
 
-  Widget _buildBody(MasterPasswordProvider mp) {
+  Widget _buildBody() {
     if (_loading) return const Center(child: CircularProgressIndicator());
 
     if (_error != null) {
@@ -267,8 +261,6 @@ Future<void> _load() async {
       );
     }
 
-    final filtered = _filtered;
-
     if (_credentials.isEmpty) {
       return const Center(
         child: Column(
@@ -283,10 +275,9 @@ Future<void> _load() async {
       );
     }
 
+    final filtered = _filtered;
     if (filtered.isEmpty) {
-      return const Center(
-        child: Text('No results match your search.'),
-      );
+      return const Center(child: Text('No results match your search.'));
     }
 
     return RefreshIndicator(
@@ -364,10 +355,10 @@ class _CredentialCard extends StatelessWidget {
 
 class _CredentialDetailSheet extends StatefulWidget {
   final Credential credential;
-  final String masterPassword;
+  final Uint8List vaultKey;
 
   const _CredentialDetailSheet(
-      {required this.credential, required this.masterPassword});
+      {required this.credential, required this.vaultKey});
 
   @override
   State<_CredentialDetailSheet> createState() =>
@@ -388,19 +379,19 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
 
   Future<void> _decrypt() async {
     try {
-      final p = await CryptoService.decrypt(
+      final p = CryptoService.decrypt(
         widget.credential.encryptedPayload,
         widget.credential.iv,
-        widget.masterPassword,
+        widget.vaultKey,
       );
       setState(() => _plaintext = p);
     } catch (_) {
-      // Decryption can fail if this credential was encrypted on a different
-      // device or before a reinstall (the per-device salt differs).
-      // The master password itself is likely correct — don't clear it.
+      // Decryption can fail if this credential was encrypted with a different
+      // vault key (e.g. before migrating to the vault-key model).
+      // The master password is still valid — do NOT clear it.
       setState(() => _error =
-          'Could not decrypt this credential. It may have been encrypted on '
-          'a different device or before a reinstall. Delete and re-add it.');
+          'Could not decrypt this credential. It was encrypted with a '
+          'different key. Delete and re-add it.');
     } finally {
       setState(() => _decrypting = false);
     }

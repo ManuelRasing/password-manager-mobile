@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -15,58 +16,64 @@ class ChangeMasterPasswordScreen extends StatefulWidget {
 
 class _ChangeMasterPasswordScreenState
     extends State<ChangeMasterPasswordScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _oldController = TextEditingController();
-  final _newController = TextEditingController();
-  final _confirmController = TextEditingController();
+  final _formKey        = GlobalKey<FormState>();
+  final _oldController  = TextEditingController();
+  final _newController  = TextEditingController();
+  final _confController = TextEditingController();
 
-  bool _obscureOld = true;
-  bool _obscureNew = true;
-  bool _obscureConfirm = true;
-
-  bool _working = false;
+  bool _obscureOld  = true;
+  bool _obscureNew  = true;
+  bool _obscureConf = true;
+  bool _working     = false;
   String? _progress;
 
   @override
   void dispose() {
     _oldController.dispose();
     _newController.dispose();
-    _confirmController.dispose();
+    _confController.dispose();
     super.dispose();
   }
 
   Future<void> _change() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
-      _working = true;
-      _progress = 'Starting…';
+      _working  = true;
+      _progress = 'Fetching vault config…';
     });
+
     try {
-      final api = ApiService();
-      await CryptoService.changeMasterPassword(
-        oldPassword: _oldController.text,
-        newPassword: _newController.text,
-        fetchCredentials: () async {
-          final creds = await api.getCredentials();
-          // Build raw maps that include id (needed by changeMasterPassword)
-          return creds
-              .map((c) => {
-                    'id': c.id,
-                    'siteName': c.siteName,
-                    'usernameHint': c.usernameHint,
-                    'encryptedPayload': c.encryptedPayload,
-                    'iv': c.iv,
-                  })
-              .toList();
-        },
-        updateCredential: (id, body) => api.updateCredential(id, body),
-        onProgress: (msg) {
-          if (mounted) setState(() => _progress = msg);
-        },
+      // 1. Fetch vault config from server
+      final config = await ApiService().getVaultConfig();
+      if (config == null) throw Exception('Vault not configured');
+
+      // 2. Verify current password and get vault key
+      if (mounted) setState(() => _progress = 'Verifying current password…');
+      final Uint8List vaultKey = await CryptoService.unlockVault(
+        _oldController.text,
+        config['masterSalt']!,
+        config['encryptedVaultKey']!,
+        config['vaultKeyIv']!,
       );
 
+      // 3. Re-wrap the vault key with the new master password
+      if (mounted) setState(() => _progress = 'Generating new key…');
+      final newConfig = await CryptoService.rotateMasterPassword(
+        vaultKey,
+        _newController.text,
+      );
+
+      // 4. Upload new vault config — only this one call, no credential changes
+      if (mounted) setState(() => _progress = 'Saving…');
+      await ApiService().putVaultConfig({
+        'masterSalt':        newConfig.masterSalt,
+        'encryptedVaultKey': newConfig.encryptedVaultKey,
+        'vaultKeyIv':        newConfig.vaultKeyIv,
+      });
+
       if (!mounted) return;
-      context.read<MasterPasswordProvider>().set(_newController.text);
+      // Vault key is unchanged — provider stays valid, biometric stays valid
+      context.read<MasterPasswordProvider>().set(vaultKey);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Master password changed successfully')),
       );
@@ -75,17 +82,13 @@ class _ChangeMasterPasswordScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content:
+              Text(e.toString().replaceFirst('Exception: ', '')),
           backgroundColor: Colors.red,
         ),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _working = false;
-          _progress = null;
-        });
-      }
+      if (mounted) setState(() { _working = false; _progress = null; });
     }
   }
 
@@ -104,45 +107,25 @@ class _ChangeMasterPasswordScreenState
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'All credentials will be re-encrypted with your new password. '
-                'This may take a moment.',
+                'Only the master password changes — your credentials are not '
+                're-encrypted because the vault key stays the same.',
                 style: TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 24),
-              // ── Current password ──────────────────────────────────────────
-              TextFormField(
+              _passwordField(
                 controller: _oldController,
-                obscureText: _obscureOld,
-                enabled: !_working,
-                decoration: InputDecoration(
-                  labelText: 'Current Password',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                        _obscureOld ? Icons.visibility : Icons.visibility_off),
-                    onPressed: () =>
-                        setState(() => _obscureOld = !_obscureOld),
-                  ),
-                ),
+                label: 'Current Password',
+                obscure: _obscureOld,
+                onToggle: () => setState(() => _obscureOld = !_obscureOld),
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 16),
-              // ── New password ──────────────────────────────────────────────
-              TextFormField(
+              _passwordField(
                 controller: _newController,
-                obscureText: _obscureNew,
-                enabled: !_working,
-                decoration: InputDecoration(
-                  labelText: 'New Password',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                        _obscureNew ? Icons.visibility : Icons.visibility_off),
-                    onPressed: () =>
-                        setState(() => _obscureNew = !_obscureNew),
-                  ),
-                ),
+                label: 'New Password',
+                obscure: _obscureNew,
+                onToggle: () => setState(() => _obscureNew = !_obscureNew),
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Required';
                   if (v.trim().length < 8) return 'Minimum 8 characters';
@@ -150,22 +133,11 @@ class _ChangeMasterPasswordScreenState
                 },
               ),
               const SizedBox(height: 16),
-              // ── Confirm new password ──────────────────────────────────────
-              TextFormField(
-                controller: _confirmController,
-                obscureText: _obscureConfirm,
-                enabled: !_working,
-                decoration: InputDecoration(
-                  labelText: 'Confirm New Password',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(_obscureConfirm
-                        ? Icons.visibility
-                        : Icons.visibility_off),
-                    onPressed: () =>
-                        setState(() => _obscureConfirm = !_obscureConfirm),
-                  ),
-                ),
+              _passwordField(
+                controller: _confController,
+                label: 'Confirm New Password',
+                obscure: _obscureConf,
+                onToggle: () => setState(() => _obscureConf = !_obscureConf),
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Required';
                   if (v.trim() != _newController.text.trim()) {
@@ -175,15 +147,12 @@ class _ChangeMasterPasswordScreenState
                 },
               ),
               const SizedBox(height: 32),
-              // ── Progress indicator ────────────────────────────────────────
               if (_working) ...[
                 const Center(child: CircularProgressIndicator()),
                 const SizedBox(height: 12),
-                Text(
-                  _progress ?? '',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
-                ),
+                Text(_progress ?? '',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey)),
                 const SizedBox(height: 24),
               ],
               FilledButton(
@@ -193,14 +162,36 @@ class _ChangeMasterPasswordScreenState
                         height: 16,
                         width: 16,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
+                            strokeWidth: 2, color: Colors.white))
                     : const Text('Change Password'),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _passwordField({
+    required TextEditingController controller,
+    required String label,
+    required bool obscure,
+    required VoidCallback onToggle,
+    required String? Function(String?) validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscure,
+      enabled: !_working,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        suffixIcon: IconButton(
+          icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
+          onPressed: onToggle,
+        ),
+      ),
+      validator: validator,
     );
   }
 }

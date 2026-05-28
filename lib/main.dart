@@ -14,16 +14,17 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final isConfigured = await StorageService.isConfigured();
-  final isMasterPasswordSetup = await StorageService.isMasterPasswordSetup();
+  final isVaultSetup = await StorageService.isVaultSetup();
 
   // Routing priority:
-  //   1. Not configured → Settings (first launch, no API key/URL)
-  //   2. Configured but no master password → Setup
-  //   3. Fully ready → Home
+  //   1. Not configured (no API key / server URL) → Settings
+  //   2. Configured but vault not set up locally  → Setup
+  //      (SetupScreen will detect server-side vault for new-device unlock)
+  //   3. Fully ready                              → Home
   final String initialLocation;
   if (!isConfigured) {
     initialLocation = '/settings';
-  } else if (!isMasterPasswordSetup) {
+  } else if (!isVaultSetup) {
     initialLocation = '/setup';
   } else {
     initialLocation = '/';
@@ -68,7 +69,6 @@ class PasswordManagerApp extends StatelessWidget {
     );
 
     return ChangeNotifierProvider(
-      // MasterPasswordProvider auto-clears when app goes to background
       create: (_) => MasterPasswordProvider(),
       child: MaterialApp.router(
         title: 'Password Manager',
