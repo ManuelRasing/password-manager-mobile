@@ -59,7 +59,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Settings saved')));
-    context.go('/');
+    final vaultReady = await StorageService.isVaultSetup();
+    if (!mounted) return;
+    context.go(vaultReady ? '/' : '/setup');
   }
 
   Future<void> _testConnection() async {
