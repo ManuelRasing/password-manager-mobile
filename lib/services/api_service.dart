@@ -44,7 +44,9 @@ class ApiService {
     final signature = _computeHmac(apiKey, method, path, timestamp, bodyHash);
 
     return {
-      'Content-Type': 'application/json',
+      // Only set Content-Type when there is a body — sending it on a bodyless
+      // DELETE causes Fastify to attempt JSON.parse('') → 400 Bad Request.
+      if (body != null) 'Content-Type': 'application/json',
       'X-Timestamp': timestamp,
       'X-Signature': signature,
     };
@@ -209,7 +211,11 @@ class ApiService {
   void _assertSuccess(http.Response response, int expectedStatus) {
     if (response.statusCode != expectedStatus) {
       final body = jsonDecode(response.body);
-      throw Exception(body['error'] ?? 'Request failed (${response.statusCode})');
+      // Fastify error shape: { statusCode, error (HTTP text), message (details) }
+      // Prefer 'message' for specifics; fall back to 'error'; last resort: status code.
+      throw Exception(
+        body['message'] ?? body['error'] ?? 'Request failed (${response.statusCode})',
+      );
     }
   }
 }

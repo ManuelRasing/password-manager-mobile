@@ -150,3 +150,7 @@ flutter run
 - `main.dart` — startup now checks `isMasterPasswordSetup()`; routes to `/setup` if not yet configured; `/change-password` route added
 - Settings screen — "Change Master Password" tile added to Security section
 - Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
+
+### Bug Fix — DELETE 400 Bad Request
+- `ApiService._signedHeaders`: no longer sends `Content-Type: application/json` when there is no request body — sending it on a bodyless DELETE caused Fastify to attempt `JSON.parse('')` and return 400 before the route handler ran
+- `ApiService._assertSuccess`: now surfaces Fastify's `message` field (e.g. "body/id must match format uuid") instead of just the generic `error` text ("Bad Request"), making future errors much easier to diagnose
