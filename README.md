@@ -151,6 +151,14 @@ flutter run
 - Settings screen — "Change Master Password" tile added to Security section
 - Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
 
+### Phase 8 — Security Hardening
+- **Vault key memory zeroing**: `MasterPasswordProvider.clear()` now zeros the `Uint8List` bytes with `fillRange(0, len, 0)` before releasing the reference, preventing the key from lingering in heap until GC
+- **iOS biometric vault key non-migratable**: `StorageService.setBiometricVaultKey` / `clearBiometricVaultKey` / `getBiometricVaultKey` now use `KeychainAccessibility.first_unlock_this_device` (per-write IOSOptions) so the vault key is never included in iCloud backups or device migrations
+- **Clipboard auto-clear**: copying a password starts a 30-second `Timer` that clears the clipboard; any subsequent copy resets the timer; snackbar updated to "Password copied — clears in 30 s"
+- **Screenshot blocking (Android)**: `FlutterWindowManager.FLAG_SECURE` set at app startup — prevents screenshots and hides content in the Android recent-apps thumbnail; iOS blurs automatically
+- **Auto-lock idle timeout**: `PasswordManagerApp` converted to `StatefulWidget`; a root `Listener` resets a 5-minute inactivity `Timer` on every pointer event; on timeout the vault key is cleared via `MasterPasswordProvider.clear()` and the user is prompted to re-unlock on the next vault operation
+- New packages: `flutter_windowmanager ^0.2.0`, `url_launcher ^6.3.2`
+
 ### Bug Fix — DELETE 400 Bad Request
 - `ApiService._signedHeaders`: no longer sends `Content-Type: application/json` when there is no request body — sending it on a bodyless DELETE caused Fastify to attempt `JSON.parse('')` and return 400 before the route handler ran
 - `ApiService._assertSuccess`: now surfaces Fastify's `message` field (e.g. "body/id must match format uuid") instead of just the generic `error` text ("Bad Request"), making future errors much easier to diagnose

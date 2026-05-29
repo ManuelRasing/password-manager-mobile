@@ -9,6 +9,12 @@ class StorageService {
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
   );
 
+  // The biometric vault key gives direct access to all credentials — it must
+  // never be included in iCloud backups (first_unlock_this_device = non-migratable).
+  static const _bioIOSOptions = IOSOptions(
+    accessibility: KeychainAccessibility.first_unlock_this_device,
+  );
+
   static const _keyApiKey            = 'api_key';
   static const _keyServerUrl         = 'server_url';
   static const _keyVaultSetup        = 'vault_setup';         // local flag
@@ -50,13 +56,14 @@ class StorageService {
       _storage.write(key: _keyBiometricEnabled, value: enabled.toString());
 
   static Future<String?> getBiometricVaultKey() =>
-      _storage.read(key: _keyBiometricVaultKey);
+      _storage.read(key: _keyBiometricVaultKey, iOptions: _bioIOSOptions);
 
   static Future<void> setBiometricVaultKey(String base64Key) =>
-      _storage.write(key: _keyBiometricVaultKey, value: base64Key);
+      _storage.write(key: _keyBiometricVaultKey, value: base64Key,
+          iOptions: _bioIOSOptions);
 
   static Future<void> clearBiometricVaultKey() =>
-      _storage.delete(key: _keyBiometricVaultKey);
+      _storage.delete(key: _keyBiometricVaultKey, iOptions: _bioIOSOptions);
 
   // --- Setup check (API key + server URL configured) ---
   static Future<bool> isConfigured() async {

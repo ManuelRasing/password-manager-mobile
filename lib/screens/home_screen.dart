@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -370,6 +371,7 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
   bool _decrypting = true;
   String? _error;
   bool _obscure = true;
+  Timer? _clipTimer; // auto-clears clipboard after 30 s
 
   @override
   void initState() {
@@ -400,8 +402,20 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
   void _copy() {
     if (_plaintext == null) return;
     Clipboard.setData(ClipboardData(text: _plaintext!));
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Password copied')));
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password copied — clears in 30 s')));
+
+    // Cancel any previous timer and start a fresh one
+    _clipTimer?.cancel();
+    _clipTimer = Timer(const Duration(seconds: 30), () {
+      Clipboard.setData(const ClipboardData(text: ''));
+    });
+  }
+
+  @override
+  void dispose() {
+    _clipTimer?.cancel();
+    super.dispose();
   }
 
   @override

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_windowmanager/flutter_windowmanager.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
@@ -12,6 +14,10 @@ import 'models/credential.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Block screenshots and hide content in Android recent-apps thumbnail.
+  // iOS blurs the app automatically when backgrounded — no extra work needed.
+  await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
 
   final isConfigured = await StorageService.isConfigured();
   final isVaultSetup = await StorageService.isVaultSetup();
@@ -33,15 +39,27 @@ void main() async {
   runApp(PasswordManagerApp(initialLocation: initialLocation));
 }
 
-class PasswordManagerApp extends StatelessWidget {
+class PasswordManagerApp extends StatefulWidget {
   final String initialLocation;
 
   const PasswordManagerApp({super.key, required this.initialLocation});
 
   @override
-  Widget build(BuildContext context) {
-    final router = GoRouter(
-      initialLocation: initialLocation,
+  State<PasswordManagerApp> createState() => _PasswordManagerAppState();
+}
+
+class _PasswordManagerAppState extends State<PasswordManagerApp> {
+  // Auto-lock: clear vault key after 5 minutes of inactivity.
+  static const _lockTimeout = Duration(minutes: 5);
+  Timer? _inactivityTimer;
+
+  late final GoRouter _router;
+
+  @override
+  void initState() {
+    super.initState();
+    _router = GoRouter(
+      initialLocation: widget.initialLocation,
       routes: [
         GoRoute(
           path: '/',
@@ -67,16 +85,39 @@ class PasswordManagerApp extends StatelessWidget {
         ),
       ],
     );
+  }
 
+  @override
+  void dispose() {
+    _inactivityTimer?.cancel();
+    super.dispose();
+  }
+
+  void _resetInactivityTimer(BuildContext ctx) {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(_lockTimeout, () {
+      // Clear vault key on idle — next vault operation will re-prompt
+      ctx.read<MasterPasswordProvider>().clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => MasterPasswordProvider(),
-      child: MaterialApp.router(
-        title: 'Password Manager',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-          useMaterial3: true,
+      child: Builder(
+        builder: (ctx) => Listener(
+          // Any pointer event resets the inactivity timer
+          onPointerDown: (_) => _resetInactivityTimer(ctx),
+          child: MaterialApp.router(
+            title: 'Password Manager',
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+              useMaterial3: true,
+            ),
+            routerConfig: _router,
+          ),
         ),
-        routerConfig: router,
       ),
     );
   }

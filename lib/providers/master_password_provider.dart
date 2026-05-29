@@ -39,6 +39,7 @@ class MasterPasswordProvider extends ChangeNotifier
 
   void clear() {
     if (_vaultKey != null) {
+      _vaultKey!.fillRange(0, _vaultKey!.length, 0); // zero bytes before GC
       _vaultKey = null;
       notifyListeners();
     }
