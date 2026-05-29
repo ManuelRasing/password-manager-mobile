@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:provider/provider.dart';
 import '../models/credential.dart';
 import '../providers/master_password_provider.dart';
@@ -367,7 +368,8 @@ class _CredentialDetailSheet extends StatefulWidget {
 }
 
 class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
-  String? _plaintext;
+  String? _password;
+  String? _notes;
   bool _decrypting = true;
   String? _error;
   bool _obscure = true;
@@ -381,12 +383,15 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
 
   Future<void> _decrypt() async {
     try {
-      final p = CryptoService.decrypt(
+      final result = CryptoService.decryptCredential(
         widget.credential.encryptedPayload,
         widget.credential.iv,
         widget.vaultKey,
       );
-      setState(() => _plaintext = p);
+      setState(() {
+        _password = result.password;
+        _notes    = result.notes;
+      });
     } catch (_) {
       // Decryption can fail if this credential was encrypted with a different
       // vault key (e.g. before migrating to the vault-key model).
@@ -400,8 +405,8 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
   }
 
   void _copy() {
-    if (_plaintext == null) return;
-    Clipboard.setData(ClipboardData(text: _plaintext!));
+    if (_password == null) return;
+    Clipboard.setData(ClipboardData(text: _password!));
     ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Password copied — clears in 30 s')));
 
@@ -444,6 +449,39 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
                 style: const TextStyle(color: Colors.grey)),
           ],
           const SizedBox(height: 24),
+          // ── URL ──────────────────────────────────────────────────────────
+          if (widget.credential.url != null &&
+              widget.credential.url!.isNotEmpty) ...[
+            const Divider(),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(Icons.link, size: 18, color: Colors.grey),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.credential.url!,
+                    style: const TextStyle(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.open_in_browser),
+                  tooltip: 'Open in browser',
+                  onPressed: () async {
+                    final uri = Uri.tryParse(widget.credential.url!);
+                    if (uri != null && await canLaunchUrl(uri)) {
+                      launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
+
+          // ── Password ──────────────────────────────────────────────────────
+          const Divider(),
+          const SizedBox(height: 4),
           const Text('Password',
               style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
@@ -457,8 +495,8 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
                 Expanded(
                   child: Text(
                     _obscure
-                        ? '•' * (_plaintext?.length ?? 8)
-                        : _plaintext!,
+                        ? '•' * (_password?.length ?? 8)
+                        : _password!,
                     style: const TextStyle(
                         fontSize: 16, fontFamily: 'monospace'),
                   ),
@@ -475,6 +513,17 @@ class _CredentialDetailSheetState extends State<_CredentialDetailSheet> {
                 ),
               ],
             ),
+
+          // ── Notes ─────────────────────────────────────────────────────────
+          if (!_decrypting && _error == null && _notes != null &&
+              _notes!.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Text('Notes',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text(_notes!, style: const TextStyle(fontSize: 14)),
+          ],
+
           const SizedBox(height: 16),
           Text(
             'Last updated: ${_formatDate(widget.credential.updatedAt)}',

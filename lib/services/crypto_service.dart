@@ -105,7 +105,45 @@ class CryptoService {
 
   // ── Credential encrypt / decrypt (synchronous) ────────────────────────────
   // Uses the vaultKey directly — no PBKDF2 needed here.
+  //
+  // New format: encryptedPayload = AES-GCM( JSON { "password": "...", "notes": "..." } )
+  // Old format (backward-compat): encryptedPayload = AES-GCM( plainPasswordString )
 
+  /// Encrypts a credential payload (password + optional notes) into a single ciphertext.
+  static Map<String, String> encryptCredential(
+    String password,
+    String? notes,
+    Uint8List vaultKey,
+  ) {
+    final payload = jsonEncode({
+      'password': password,
+      if (notes != null && notes.isNotEmpty) 'notes': notes,
+    });
+    return encrypt(payload, vaultKey);
+  }
+
+  /// Decrypts a credential payload and returns password + notes.
+  /// Backward-compatible: handles both old plain-string and new JSON formats.
+  static ({String password, String? notes}) decryptCredential(
+    String encryptedPayload,
+    String ivBase64,
+    Uint8List vaultKey,
+  ) {
+    final plaintext = decrypt(encryptedPayload, ivBase64, vaultKey);
+    try {
+      final json = jsonDecode(plaintext) as Map<String, dynamic>;
+      return (
+        password: json['password'] as String? ?? plaintext,
+        notes:    json['notes']    as String?,
+      );
+    } catch (_) {
+      // Old format — the plaintext is the password itself
+      return (password: plaintext, notes: null);
+    }
+  }
+
+  /// Low-level encrypt: AES-256-GCM of any string. Used by encryptCredential
+  /// and by the vault key wrapping helpers above.
   static Map<String, String> encrypt(String plaintext, Uint8List vaultKey) {
     final iv = enc.IV.fromSecureRandom(12);
     final encrypter =
@@ -114,6 +152,7 @@ class CryptoService {
     return {'encryptedPayload': encrypted.base64, 'iv': iv.base64};
   }
 
+  /// Low-level decrypt. Throws 'Decryption failed' on wrong key / corrupted data.
   static String decrypt(
     String encryptedPayload,
     String ivBase64,

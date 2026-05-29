@@ -151,6 +151,15 @@ flutter run
 - Settings screen — "Change Master Password" tile added to Security section
 - Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
 
+### Phase 9 — Notes + URL Fields
+- **Credential model** extended: `url` (plaintext, nullable) + `notes` (encrypted alongside password)
+- **Encrypted payload format** changed to JSON `{ "password": "...", "notes": "..." }` — fully backward-compatible (old plain-string credentials continue to work)
+- **`CryptoService.encryptCredential`**: new helper encrypts password + optional notes together
+- **`CryptoService.decryptCredential`**: returns `({String password, String? notes})` record with backward-compat fallback
+- **AddScreen**: URL field (plaintext), Notes field (multiline, encrypted); edit mode decrypts and pre-fills both password and notes before the form renders
+- **HomeScreen detail sheet**: URL displayed with "Open in browser" button; Notes section shown below password
+- New package: `url_launcher ^6.3.2`
+
 ### Phase 8 — Security Hardening
 - **Vault key memory zeroing**: `MasterPasswordProvider.clear()` now zeros the `Uint8List` bytes with `fillRange(0, len, 0)` before releasing the reference, preventing the key from lingering in heap until GC
 - **iOS biometric vault key non-migratable**: `StorageService.setBiometricVaultKey` / `clearBiometricVaultKey` / `getBiometricVaultKey` now use `KeychainAccessibility.first_unlock_this_device` (per-write IOSOptions) so the vault key is never included in iCloud backups or device migrations
