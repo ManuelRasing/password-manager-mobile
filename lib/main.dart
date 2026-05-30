@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_windowmanager/flutter_windowmanager.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
@@ -15,9 +14,8 @@ import 'models/credential.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Block screenshots and hide content in Android recent-apps thumbnail.
-  // iOS blurs the app automatically when backgrounded — no extra work needed.
-  await FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
+  // Screenshot blocking is set natively in MainActivity.kt (Android) — see
+  // FLAG_SECURE in onCreate. iOS blurs the app automatically on background.
 
   final isConfigured = await StorageService.isConfigured();
   final isVaultSetup = await StorageService.isVaultSetup();
