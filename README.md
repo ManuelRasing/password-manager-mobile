@@ -151,6 +151,13 @@ flutter run
 - Settings screen — "Change Master Password" tile added to Security section
 - Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
 
+### Phase 16 — Pre-Distribution Polish
+- **Cold-start hint**: HomeScreen shows "Waking up the server… up to 30 seconds" after 5s of loading (Render free tier spins down when idle); timer cancelled on response
+- **Release signing**: `build.gradle.kts` reads `android/key.properties` (gitignored) for the upload keystore; falls back to debug signing if absent so a fresh clone still builds. Keystore lives **outside** the repo (`~/password-manager-upload.jks`)
+- **`FRIENDS.md`**: non-technical onboarding guide (install APK, connect, master password, biometric, autofill, troubleshooting)
+- App label set to "Password Manager"; launcher icon wired via `flutter_launcher_icons`
+- Release build: `flutter build apk --release --split-per-abi` → signed per-ABI APKs (arm64-v8a is the one most phones need)
+
 ### Phase 15 — Android Autofill Service (native Kotlin)
 - **`autofill/PasswordManagerAutofillService.kt`** — parses the assist structure for username/password fields + web domain; returns a `FillResponse` with an authentication intent (no secrets in the service process)
 - **`autofill/AutofillAuthActivity.kt`** — biometric-gates, reads the shared vault, decrypts, shows an `AlertDialog` credential picker (domain-filtered, falls back to full list), returns the chosen `Dataset`

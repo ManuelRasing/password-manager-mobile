@@ -25,6 +25,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _loading = true;
   String? _error;
   bool _offlineMode = false;
+  bool _slowLoad = false;        // server cold-start hint
+  Timer? _slowLoadTimer;
 
   // Search
   bool _searchActive = false;
@@ -56,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
+    _slowLoadTimer?.cancel();
     super.dispose();
   }
 
@@ -96,7 +99,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // storage (still ciphertext — we just keep the server JSON). On failure we
   // fall back to that cache so the app stays usable offline.
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; _offlineMode = false; });
+    setState(() { _loading = true; _error = null; _offlineMode = false; _slowLoad = false; });
+    // Render free tier spins down after 15 min idle — the first request can take
+    // ~30s to cold-start. Surface a hint if the fetch is taking a while.
+    _slowLoadTimer?.cancel();
+    _slowLoadTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted && _loading) setState(() => _slowLoad = true);
+    });
     try {
       final credentials = await ApiService().getCredentials();
       setState(() => _credentials = credentials);
@@ -119,7 +128,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
-      setState(() => _loading = false);
+      _slowLoadTimer?.cancel();
+      setState(() { _loading = false; _slowLoad = false; });
     }
   }
 
@@ -279,7 +289,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildBody() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            if (_slowLoad) ...[
+              const SizedBox(height: 20),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 40),
+                child: Text(
+                  'Waking up the server… the first request after a while can '
+                  'take up to 30 seconds.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
 
     if (_error != null) {
       return Center(
