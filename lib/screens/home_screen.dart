@@ -24,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<Credential> _credentials = [];
   bool _loading = true;
   String? _error;
+  bool _offlineMode = false;
 
   // Search
   bool _searchActive = false;
@@ -91,13 +92,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   // ── Data loading ──────────────────────────────────────────────────────────
+  // Always tries the server first. On success the result is cached in secure
+  // storage (still ciphertext — we just keep the server JSON). On failure we
+  // fall back to that cache so the app stays usable offline.
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() { _loading = true; _error = null; _offlineMode = false; });
     try {
       final credentials = await ApiService().getCredentials();
       setState(() => _credentials = credentials);
+      // Cache write is best-effort — don't block the UI on disk I/O.
+      // Swallow errors: a failed cache write should never disrupt a good fetch.
+      final jsonStr =
+          jsonEncode(credentials.map((c) => c.toJson()).toList());
+      unawaited(StorageService.setCachedCredentials(jsonStr).catchError((_) {}));
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final cached = await StorageService.getCachedCredentials();
+      if (cached != null) {
+        final List<dynamic> data = jsonDecode(cached);
+        setState(() {
+          _credentials = data
+              .map((j) => Credential.fromJson(j as Map<String, dynamic>))
+              .toList();
+          _offlineMode = true;
+        });
+      } else {
+        setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       setState(() => _loading = false);
     }
@@ -228,7 +248,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ],
           ),
-          body: _buildBody(),
+          body: Column(
+            children: [
+              if (_offlineMode)
+                MaterialBanner(
+                  backgroundColor: Colors.orange.shade100,
+                  leading: const Icon(Icons.cloud_off, color: Colors.orange),
+                  content: const Text(
+                    'Offline — showing cached credentials.',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  actions: [
+                    TextButton(onPressed: _load, child: const Text('RETRY')),
+                  ],
+                ),
+              Expanded(child: _buildBody()),
+            ],
+          ),
           floatingActionButton: FloatingActionButton(
             onPressed: () async {
               await context.push('/add');

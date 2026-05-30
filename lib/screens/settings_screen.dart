@@ -53,11 +53,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  // Persist the three credentials needed for HMAC + user lookup. Returns true on success.
+  // Persist the three credentials needed for HMAC + user lookup.
+  // setUsername() handles cache invalidation on username change internally.
   Future<void> _persistCredentials() async {
-    await StorageService.setServerUrl(_serverUrlController.text.trim());
-    await StorageService.setUsername(_usernameController.text.trim());
-    await StorageService.setApiKey(_apiKeyController.text.trim());
+    await Future.wait([
+      StorageService.setServerUrl(_serverUrlController.text.trim()),
+      StorageService.setUsername(_usernameController.text.trim()),
+      StorageService.setApiKey(_apiKeyController.text.trim()),
+    ]);
   }
 
   Future<void> _save() async {

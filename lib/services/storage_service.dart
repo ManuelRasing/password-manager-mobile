@@ -21,6 +21,7 @@ class StorageService {
   static const _keyVaultSetup        = 'vault_setup';         // local flag
   static const _keyBiometricEnabled  = 'biometric_enabled';
   static const _keyBiometricVaultKey = 'biometric_vault_key'; // base64 vault key
+  static const _keyCachedCredentials = 'cached_credentials';  // JSON-encoded list
 
   // --- API Key ---
   static Future<String?> getApiKey() => _storage.read(key: _keyApiKey);
@@ -28,9 +29,17 @@ class StorageService {
       _storage.write(key: _keyApiKey, value: key);
 
   // --- Username (multi-user identifier sent in X-Username header) ---
+  // Writing a *different* username drops the local credential cache — the
+  // previous entries belong to a different account. Invariant lives here so
+  // callers can't forget it.
   static Future<String?> getUsername() => _storage.read(key: _keyUsername);
-  static Future<void> setUsername(String username) =>
-      _storage.write(key: _keyUsername, value: username);
+  static Future<void> setUsername(String username) async {
+    final previous = await _storage.read(key: _keyUsername);
+    await _storage.write(key: _keyUsername, value: username);
+    if (previous != null && previous != username) {
+      await _storage.delete(key: _keyCachedCredentials);
+    }
+  }
 
   // --- Server URL ---
   static Future<String?> getServerUrl() => _storage.read(key: _keyServerUrl);
@@ -70,6 +79,19 @@ class StorageService {
 
   static Future<void> clearBiometricVaultKey() =>
       _storage.delete(key: _keyBiometricVaultKey, iOptions: _bioIOSOptions);
+
+  // --- Local credential cache ---
+  // Stores the full credential list (server JSON shape) for offline access.
+  // Each entry's `encryptedPayload` is still ciphertext — the cache itself
+  // also lives in flutter_secure_storage (Keychain / EncryptedSharedPreferences).
+  static Future<String?> getCachedCredentials() =>
+      _storage.read(key: _keyCachedCredentials);
+
+  static Future<void> setCachedCredentials(String jsonStr) =>
+      _storage.write(key: _keyCachedCredentials, value: jsonStr);
+
+  static Future<void> clearCachedCredentials() =>
+      _storage.delete(key: _keyCachedCredentials);
 
   // --- Setup check (username + API key + server URL configured) ---
   static Future<bool> isConfigured() async {

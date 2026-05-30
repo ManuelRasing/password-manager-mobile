@@ -151,6 +151,12 @@ flutter run
 - Settings screen — "Change Master Password" tile added to Security section
 - Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
 
+### Phase 11 — Local Credential Cache (offline mode)
+- **`StorageService`**: added `cached_credentials` key + `getCachedCredentials` / `setCachedCredentials` / `clearCachedCredentials`. Cache invariant lives inside `setUsername()` — writing a different username drops the cache automatically (callers can't forget it)
+- **`HomeScreen._load()`**: writes the cache after a successful fetch (fire-and-forget, errors swallowed — disk I/O never blocks UI); on network failure falls back to the cached list and shows a `MaterialBanner` with a **RETRY** action
+- **`SettingsScreen._persistCredentials`**: writes the three settings keys in parallel via `Future.wait`
+- Cache stores the server JSON shape — `encryptedPayload` is still ciphertext, the entries themselves remain encrypted; the cache file itself lives in Keychain / EncryptedSharedPreferences
+
 ### Phase 10 — Multi-User
 - **`StorageService`**: added `getUsername()` / `setUsername()` keyed under `username`; `isConfigured()` now requires all three of (server URL, username, API key)
 - **`ApiService._signedHeaders`**: now sends `X-Username` alongside `X-Timestamp` and `X-Signature` so the server can look up the right HMAC secret
