@@ -234,6 +234,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.health_and_safety),
+                title: const Text('Password Health'),
+                subtitle: const Text(
+                    'Check for weak, reused, and breached passwords'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/password-health'),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.lock_reset),
                 title: const Text('Change Master Password'),
                 subtitle: const Text(

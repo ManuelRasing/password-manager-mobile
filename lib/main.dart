@@ -7,6 +7,7 @@ import 'screens/add_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/setup_screen.dart';
 import 'screens/change_master_password_screen.dart';
+import 'screens/password_health_screen.dart';
 import 'services/storage_service.dart';
 import 'providers/master_password_provider.dart';
 import 'models/credential.dart';
@@ -80,6 +81,10 @@ class _PasswordManagerAppState extends State<PasswordManagerApp> {
         GoRoute(
           path: '/change-password',
           builder: (context, state) => const ChangeMasterPasswordScreen(),
+        ),
+        GoRoute(
+          path: '/password-health',
+          builder: (context, state) => const PasswordHealthScreen(),
         ),
       ],
     );

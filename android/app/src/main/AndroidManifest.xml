@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Network access for the API, Google Drive backup, and HIBP breach checks.
+         Must be in the main manifest — Flutter only injects it for debug/profile,
+         so release builds would otherwise have no internet. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Required for local_auth biometric support -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.USE_FINGERPRINT"/>

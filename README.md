@@ -151,6 +151,16 @@ flutter run
 - Settings screen — "Change Master Password" tile added to Security section
 - Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
 
+### Phase 13 — Password Health
+- **`PasswordHealthService`**: analyses every credential's decrypted password for three issues:
+  - **Weak** — length < 8 or fewer than 3 character classes
+  - **Reused** — same plaintext appears on ≥2 sites (grouped in memory, never persisted)
+  - **Breached** — checked against Have I Been Pwned using k-anonymity (only the first 5 hex chars of the SHA-1 hash leave the device; 5s timeout, graceful offline fallback)
+- **`PasswordHealthScreen`**: vault-gated; shows a 0–100 score ring + expandable Breached / Reused / Weak sections; tapping an entry opens it in the editor
+- **`SettingsScreen`**: new "Password Health" tile in the Security section
+- **`main.dart`**: `/password-health` route
+- **AndroidManifest**: added `INTERNET` permission to the *main* manifest — it was only in debug/profile, so release builds would have had no network access (release-blocking fix)
+
 ### Phase 11 — Local Credential Cache (offline mode)
 - **`StorageService`**: added `cached_credentials` key + `getCachedCredentials` / `setCachedCredentials` / `clearCachedCredentials`. Cache invariant lives inside `setUsername()` — writing a different username drops the cache automatically (callers can't forget it)
 - **`HomeScreen._load()`**: writes the cache after a successful fetch (fire-and-forget, errors swallowed — disk I/O never blocks UI); on network failure falls back to the cached list and shows a `MaterialBanner` with a **RETRY** action
