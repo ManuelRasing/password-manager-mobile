@@ -38,6 +38,24 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/
+
+# Run after replacing assets/icon/app_icon.png:
+#   dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: "launcher_icon"        # generates res/mipmap-*/launcher_icon.png
+  ios: true                       # rewrites ios/Runner/Assets.xcassets/AppIcon.appiconset
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 23
+  # iOS rejects alpha channels — flatten transparent corners onto pale indigo.
+  remove_alpha_ios: true
+  background_color_ios: "#E8EAF6"
+  # Android adaptive icons: solid pale-indigo background + the full image as foreground.
+  # The launcher safely crops the foreground (circle / squircle / rounded square).
+  adaptive_icon_background: "#E8EAF6"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
