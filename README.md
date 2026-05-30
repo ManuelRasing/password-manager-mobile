@@ -151,6 +151,12 @@ flutter run
 - Settings screen — "Change Master Password" tile added to Security section
 - Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
 
+### Phase 14 — Automated Tests (critical paths)
+- `test/services/crypto_service_test.dart` — vault setup/unlock round-trip, wrong-password failure, master-password rotation (same vault key, old password rejected), credential encrypt/decrypt with & without notes, backward-compat with old plain-string payloads, tamper/wrong-key rejection
+- `test/models/credential_test.dart` — `fromJson`/`toJson` round-trip, missing-field defaults, `url` omitted when null
+- Removed the placeholder `widget_test.dart`
+- Run with `flutter test`
+
 ### Phase 13 — Password Health
 - **`PasswordHealthService`**: analyses every credential's decrypted password for three issues:
   - **Weak** — length < 8 or fewer than 3 character classes
