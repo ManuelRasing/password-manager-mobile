@@ -32,9 +32,11 @@ class ApiService {
     String path, {
     Object? body,
   }) async {
-    final apiKey = await StorageService.getApiKey();
-    if (apiKey == null || apiKey.isEmpty) {
-      throw Exception('API key not configured. Go to Settings.');
+    final apiKey   = await StorageService.getApiKey();
+    final username = await StorageService.getUsername();
+    if (apiKey == null || apiKey.isEmpty ||
+        username == null || username.isEmpty) {
+      throw Exception('Username or API key not configured. Go to Settings.');
     }
 
     final timestamp =
@@ -47,6 +49,7 @@ class ApiService {
       // Only set Content-Type when there is a body — sending it on a bodyless
       // DELETE causes Fastify to attempt JSON.parse('') → 400 Bad Request.
       if (body != null) 'Content-Type': 'application/json',
+      'X-Username':  username,
       'X-Timestamp': timestamp,
       'X-Signature': signature,
     };

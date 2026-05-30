@@ -17,8 +17,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _formKey            = GlobalKey<FormState>();
+  final _formKey             = GlobalKey<FormState>();
   final _serverUrlController = TextEditingController();
+  final _usernameController  = TextEditingController();
   final _apiKeyController    = TextEditingController();
 
   bool _saving  = false;
@@ -37,6 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _load() async {
     final url          = await StorageService.getServerUrl();
+    final username     = await StorageService.getUsername();
     final key          = await StorageService.getApiKey();
     final bioAvailable = await BiometricService.isAvailable();
     final bioEnabled   = await StorageService.isBiometricEnabled();
@@ -44,17 +46,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _serverUrlController.text =
           url ?? 'https://password-manager-server-9shr.onrender.com';
+      _usernameController.text  = username ?? '';
       _apiKeyController.text    = key ?? '';
       _biometricAvailable       = bioAvailable;
       _biometricEnabled         = bioEnabled;
     });
   }
 
+  // Persist the three credentials needed for HMAC + user lookup. Returns true on success.
+  Future<void> _persistCredentials() async {
+    await StorageService.setServerUrl(_serverUrlController.text.trim());
+    await StorageService.setUsername(_usernameController.text.trim());
+    await StorageService.setApiKey(_apiKeyController.text.trim());
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
-    await StorageService.setServerUrl(_serverUrlController.text.trim());
-    await StorageService.setApiKey(_apiKeyController.text.trim());
+    await _persistCredentials();
     setState(() => _saving = false);
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -67,8 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _testConnection() async {
     setState(() { _testing = true; _testResult = null; });
     // Save first so ApiService reads the values just entered
-    await StorageService.setServerUrl(_serverUrlController.text.trim());
-    await StorageService.setApiKey(_apiKeyController.text.trim());
+    await _persistCredentials();
     final error = await ApiService().testConnection();
     setState(() {
       _testing    = false;
@@ -120,6 +128,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _serverUrlController.dispose();
+    _usernameController.dispose();
     _apiKeyController.dispose();
     super.dispose();
   }
@@ -151,6 +160,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.url,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _usernameController,
+                decoration: const InputDecoration(
+                  labelText: 'Username',
+                  hintText: 'Your username on this server',
+                  border: OutlineInputBorder(),
+                ),
+                autocorrect: false,
+                textCapitalization: TextCapitalization.none,
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),

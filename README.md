@@ -151,6 +151,12 @@ flutter run
 - Settings screen — "Change Master Password" tile added to Security section
 - Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
 
+### Phase 10 — Multi-User
+- **`StorageService`**: added `getUsername()` / `setUsername()` keyed under `username`; `isConfigured()` now requires all three of (server URL, username, API key)
+- **`ApiService._signedHeaders`**: now sends `X-Username` alongside `X-Timestamp` and `X-Signature` so the server can look up the right HMAC secret
+- **`SettingsScreen`**: new Username field between Server URL and API Key; lowercase, no autocorrect
+- Each user has a fully independent vault: their own master password, vault key, and credentials — no shared data, no cross-user access
+
 ### Phase 9 — Notes + URL Fields
 - **Credential model** extended: `url` (plaintext, nullable) + `notes` (encrypted alongside password)
 - **Encrypted payload format** changed to JSON `{ "password": "...", "notes": "..." }` — fully backward-compatible (old plain-string credentials continue to work)

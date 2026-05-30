@@ -16,6 +16,7 @@ class StorageService {
   );
 
   static const _keyApiKey            = 'api_key';
+  static const _keyUsername          = 'username';
   static const _keyServerUrl         = 'server_url';
   static const _keyVaultSetup        = 'vault_setup';         // local flag
   static const _keyBiometricEnabled  = 'biometric_enabled';
@@ -25,6 +26,11 @@ class StorageService {
   static Future<String?> getApiKey() => _storage.read(key: _keyApiKey);
   static Future<void> setApiKey(String key) =>
       _storage.write(key: _keyApiKey, value: key);
+
+  // --- Username (multi-user identifier sent in X-Username header) ---
+  static Future<String?> getUsername() => _storage.read(key: _keyUsername);
+  static Future<void> setUsername(String username) =>
+      _storage.write(key: _keyUsername, value: username);
 
   // --- Server URL ---
   static Future<String?> getServerUrl() => _storage.read(key: _keyServerUrl);
@@ -65,11 +71,13 @@ class StorageService {
   static Future<void> clearBiometricVaultKey() =>
       _storage.delete(key: _keyBiometricVaultKey, iOptions: _bioIOSOptions);
 
-  // --- Setup check (API key + server URL configured) ---
+  // --- Setup check (username + API key + server URL configured) ---
   static Future<bool> isConfigured() async {
     final apiKey    = await _storage.read(key: _keyApiKey);
+    final username  = await _storage.read(key: _keyUsername);
     final serverUrl = await _storage.read(key: _keyServerUrl);
     return apiKey    != null && apiKey.isNotEmpty &&
+           username  != null && username.isNotEmpty &&
            serverUrl != null && serverUrl.isNotEmpty;
   }
 
