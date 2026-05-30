@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Autofill service metadata. The settings activity points users back at the
+     Android autofill picker via the app's own Settings screen. -->
+<autofill-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.personal.password_manager.MainActivity" />

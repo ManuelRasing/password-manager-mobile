@@ -151,6 +151,24 @@ flutter run
 - Settings screen — "Change Master Password" tile added to Security section
 - Security storage: `verifier_ciphertext` + `verifier_iv` stored in flutter_secure_storage alongside the master salt
 
+### Phase 15 — Android Autofill Service (native Kotlin)
+- **`autofill/PasswordManagerAutofillService.kt`** — parses the assist structure for username/password fields + web domain; returns a `FillResponse` with an authentication intent (no secrets in the service process)
+- **`autofill/AutofillAuthActivity.kt`** — biometric-gates, reads the shared vault, decrypts, shows an `AlertDialog` credential picker (domain-filtered, falls back to full list), returns the chosen `Dataset`
+- **`autofill/VaultReader.kt`** — reads the *same* `EncryptedSharedPreferences` the Flutter app writes. Verified against flutter_secure_storage 9.2.4: file `FlutterSecureStorage`, key prefix `VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIHNlY3VyZSBzdG9yYWdlCg_`, `DEFAULT_MASTER_KEY_ALIAS`, AES256_SIV keys / AES256_GCM values
+- **`autofill/CredentialCrypto.kt`** — AES-256-GCM decrypt that matches Dart's `encrypt` package (ciphertext‖16-byte tag), same JSON `{password, notes}` parsing with old-plain-string fallback
+- **`autofill/DomainMatcher.kt`** — hostname extraction + suffix matching against credential URLs
+- **Settings** → "Set up Autofill" tile (Android only) opens the system autofill picker via `android_intent_plus`
+- Manifest: `<service>` with `BIND_AUTOFILL_SERVICE` + `AutofillAuthActivity` (transparent AppCompat theme); new deps `androidx.security:security-crypto`, `androidx.biometric`, `androidx.appcompat`, `androidx.recyclerview`
+- New package: `android_intent_plus ^6.0.0`
+
+**Requires biometric unlock to be enabled** — that's the only at-rest location of the vault key (the autofill process can't reach Flutter's in-memory key).
+
+**Known limitations (v1):**
+- Reads the *cached* credential list — open the app once after adding/editing a login so autofill sees it
+- Works best in browsers (web domain available); native-app package→domain matching is not implemented, so for many apps you'll pick from the full list
+- The picker is a native `AlertDialog`, not the Material 3 Flutter UI
+- **Needs on-device verification** — autofill runtime behaviour can't be exercised in CI; see the Phase 15 device checklist in the plan
+
 ### Phase 14 — Automated Tests (critical paths)
 - `test/services/crypto_service_test.dart` — vault setup/unlock round-trip, wrong-password failure, master-password rotation (same vault key, old password rejected), credential encrypt/decrypt with & without notes, backward-compat with old plain-string payloads, tamper/wrong-key rejection
 - `test/models/credential_test.dart` — `fromJson`/`toJson` round-trip, missing-field defaults, `url` omitted when null

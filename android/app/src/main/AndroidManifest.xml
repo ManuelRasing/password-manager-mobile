@@ -32,6 +32,28 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Autofill service (Phase 15) — API 26+. The framework only binds it on
+             devices that support autofill; lower API levels simply ignore it. -->
+        <service
+            android:name=".autofill.PasswordManagerAutofillService"
+            android:exported="true"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+
+        <!-- Launched from the autofill suggestion; biometric-unlocks and returns
+             the chosen dataset. Transparent so only the prompt/dialog show. -->
+        <activity
+            android:name=".autofill.AutofillAuthActivity"
+            android:exported="false"
+            android:theme="@style/AutofillTheme"
+            android:excludeFromRecents="true" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

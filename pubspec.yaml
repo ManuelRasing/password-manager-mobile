@@ -33,6 +33,7 @@ dependencies:
   # Navigation
   go_router: ^14.8.1
   url_launcher: ^6.3.2
+  android_intent_plus: ^6.0.0
 
 dev_dependencies:
   flutter_test:

@@ -40,6 +40,16 @@ kotlin {
     }
 }
 
+dependencies {
+    // Autofill service (Phase 15) — native Kotlin, runs in a separate process.
+    // Reads the same EncryptedSharedPreferences vault the Flutter app writes.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.core:core-ktx:1.13.1")
+}
+
 flutter {
     source = "../.."
 }

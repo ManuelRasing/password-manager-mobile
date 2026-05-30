@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
+import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -125,6 +127,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } finally {
       if (mounted) setState(() => _togglingBiometric = false);
+    }
+  }
+
+  // Opens the Android system autofill-service picker so the user can select
+  // this app. Android only; no-op elsewhere.
+  Future<void> _openAutofillSettings() async {
+    if (!Platform.isAndroid) return;
+    const intent = AndroidIntent(
+      action: 'android.settings.REQUEST_SET_AUTOFILL_SERVICE',
+      data: 'package:com.personal.password_manager',
+    );
+    try {
+      await intent.launch();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Could not open autofill settings. Set it manually: System '
+                'Settings → Passwords & accounts → Autofill service.')));
+      }
     }
   }
 
@@ -262,6 +284,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: _togglingBiometric
                       ? null
                       : (v) => _toggleBiometric(v),
+                ),
+              ],
+              if (Platform.isAndroid) ...[
+                const SizedBox(height: 8),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.password),
+                  title: const Text('Set up Autofill'),
+                  subtitle: const Text(
+                      'Fill passwords in other apps. Requires Biometric Unlock to be enabled.'),
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: _openAutofillSettings,
                 ),
               ],
             ],
